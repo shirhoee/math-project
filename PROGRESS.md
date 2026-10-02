@@ -12,9 +12,9 @@
 - [x] *Git Commit & Push*
 
 ## Phase 3: The Rotation Engine (Orthogonal Matrices)
-- [ ] Write functions to generate $3 \times 3$ rotation matrices for X (Pitch), Y (Yaw), and Z (Roll).
-- [ ] Implement `apply_transform()` to multiply the point cloud by the rotation matrices.
-- [ ] *Git Commit & Push*
+- [x] Write functions to generate $3 \times 3$ rotation matrices for X (Pitch), Y (Yaw), and Z (Roll).
+- [x] Implement `apply_transform()` to multiply the point cloud by the rotation matrices.
+- [x] *Git Commit & Push*
 
 ## Phase 4: The Projection Engine (3D to 2D)
 - [ ] Implement `project_to_2d()` to map rotated 3D coordinates back to 2D pixel coordinates.
