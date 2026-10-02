@@ -5,7 +5,8 @@ NumPy-based 3D View Synthesis engine mapping 2D images to 3D and rendering at no
 
 ## Setup
 1. Install dependencies
-2. streamlit run app.py`n
+2. `streamlit run app.py`
+
 ## Parameters
 | Name | Default | Meaning | Effect |
 |---|---|---|---|
