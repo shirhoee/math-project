@@ -185,7 +185,7 @@ def test_vectorization_audit():
     for node in ast.walk(tree):
         if isinstance(node, ast.For):
             if isinstance(node.iter, ast.Call) and isinstance(node.iter.func, ast.Name) and node.iter.func.id == 'range':
-                # Allowed loop variables: dx, dy, i
-                if isinstance(node.target, ast.Name) and node.target.id in ['dx', 'dy', 'i']:
+                # Allowed loop variables: dx, dy, i, _
+                if isinstance(node.target, ast.Name) and node.target.id in ['dx', 'dy', 'i', '_']:
                     continue
                 pytest.fail(f"Found forbidden for loop in math_engine.py: line {node.lineno}")

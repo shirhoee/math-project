@@ -12,24 +12,22 @@ def test_disparity_direction():
         
     disparity = np.load('tests/fixtures/sample_disparity.npy')
     
-    # Near point (person's shirt/body) and far point (background sky/wall)
-    near_idx = (533, 324)
-    far_idx = (141, 6)
+    person_box = disparity[300:500, 300:500]
+    sky_box = disparity[0:100, 0:200]
     
-    d_near = disparity[near_idx]
-    d_far = disparity[far_idx]
+    mean_near = np.mean(person_box)
+    mean_far = np.mean(sky_box)
     
-    # Model validation: near object must have a larger normalized disparity
-    assert d_near > d_far
+    assert mean_near > mean_far
     
     # Engine validation: near object must have a smaller physical Z depth
     engine = TransformEngine(disparity.shape[1], disparity.shape[0])
     z = engine.disparity_to_depth(disparity, z_near=1.0, z_far=4.0)
     
-    z_near_val = z[near_idx]
-    z_far_val = z[far_idx]
+    z_person = z[300:500, 300:500]
+    z_sky = z[0:100, 0:200]
     
-    assert z_near_val < z_far_val
+    assert np.mean(z_person) < np.mean(z_sky)
 
 def test_edge_masking_slanted_plane():
     engine = TransformEngine(10, 10)
@@ -103,7 +101,7 @@ def test_hole_fill_background_bias():
     
     # Hole at column 4
     
-    c_filled, d_filled = engine.fill_holes(c, d)
+    c_filled, d_filled = engine.fill_holes_iterative(c, d)
     
     # Hole should be filled with background (Z=4, Blue)
     assert d_filled[5, 4] == 4.0

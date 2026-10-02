@@ -50,7 +50,38 @@ def test_fill_holes_regression():
         depth[holes] = np.inf
         
         c_old, d_old = fill_holes_old(canvas.copy(), depth.copy(), max_iters=3)
-        c_new, d_new = engine.fill_holes(canvas.copy(), depth.copy(), max_iters=3)
+        c_new, d_new = engine.fill_holes_iterative(canvas.copy(), depth.copy(), max_iters=3)
         
         np.testing.assert_array_equal(d_old, d_new)
         np.testing.assert_array_equal(c_old, c_new)
+
+def test_fill_holes_pyramid_properties():
+    from math_engine import TransformEngine
+    engine = TransformEngine(20, 20)
+    canvas = np.zeros((20, 20, 3), dtype=np.uint8)
+    depth = np.full((20, 20), np.inf, dtype=np.float32)
+    
+    # 1. No holes when at least one occupied pixel exists
+    canvas[10, 10] = [255, 0, 0]
+    depth[10, 10] = 2.0
+    c_new, d_new = engine.fill_holes_pyramid(canvas.copy(), depth.copy())
+    assert not np.any(np.isinf(d_new))
+    
+    # 2. Filled pixels take colours from the occupied pixel set only
+    unique_colors = np.unique(c_new.reshape(-1, 3), axis=0)
+    assert len(unique_colors) == 1
+    assert np.array_equal(unique_colors[0], [255, 0, 0])
+    
+    # 3. On foreground/background rectangle test, filled pixels get background colour
+    canvas2 = np.zeros((20, 20, 3), dtype=np.uint8)
+    depth2 = np.full((20, 20), np.inf, dtype=np.float32)
+    # Background (Z=5)
+    canvas2[0:20, 0:9] = [0, 255, 0]
+    depth2[0:20, 0:9] = 5.0
+    # Foreground (Z=2)
+    canvas2[0:20, 10:20] = [0, 0, 255]
+    depth2[0:20, 10:20] = 2.0
+    
+    c_new2, d_new2 = engine.fill_holes_pyramid(canvas2.copy(), depth2.copy())
+    assert np.all(d_new2[0:20, 9] == 5.0)
+    assert np.all(c_new2[0:20, 9] == [0, 255, 0])
