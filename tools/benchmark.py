@@ -61,10 +61,7 @@ def benchmark():
             
             if use_fill:
                 if hasattr(engine_s, 'fill_holes_pyramid'):
-                    if stride > 1:
-                        c, d = engine_s.fill_holes_iterative(c, d, max_iters=8)
-                    else:
-                        c, d = engine_s.fill_holes_pyramid(c, d)
+                    c, d = engine_s.fill_holes_pyramid(c, d)
                 else:
                     c, d = engine_s.fill_holes(c, d, max_iters=15)
                     
@@ -72,17 +69,17 @@ def benchmark():
             if i > 0:
                 times.append((t1 - t0) * 1000)
                 
-        return np.mean(times), np.std(times)
+        return np.mean(times), np.std(times), np.percentile(times, 95)
         
-    m1_nofill, s1_nofill = run_pass(1, False)
-    m1_fill, s1_fill = run_pass(1, True)
-    m2_nofill, s2_nofill = run_pass(2, False)
-    m2_fill, s2_fill = run_pass(2, True)
+    m1_nofill, s1_nofill, p1_nofill = run_pass(1, False)
+    m1_fill, s1_fill, p1_fill = run_pass(1, True)
+    m2_nofill, s2_nofill, p2_nofill = run_pass(2, False)
+    m2_fill, s2_fill, p2_fill = run_pass(2, True)
     
     print(f"Stride 1 (No fill): {m1_nofill:.1f} +- {s1_nofill:.1f} ms")
     print(f"Stride 1 (Fill): {m1_fill:.1f} +- {s1_fill:.1f} ms")
     print(f"Stride 2 (No fill): {m2_nofill:.1f} +- {s2_nofill:.1f} ms")
-    print(f"Stride 2 (Fill): {m2_fill:.1f} +- {s2_fill:.1f} ms")
+    print(f"Stride 2 (Fill): {m2_fill:.1f} +- {s2_fill:.1f} ms (p95: {p2_fill:.1f} ms)")
 
 if __name__ == "__main__":
     benchmark()
