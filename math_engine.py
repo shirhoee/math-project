@@ -159,6 +159,140 @@ class TransformEngine:
         # (4,4) @ (4,4) @ (4,4) -> (4,4)
         return T_plus_c_t @ (R4 @ T_minus_c)
 
+    def project_to_2d(self, P: np.ndarray, colors: np.ndarray, z_clip: float = 1e-3, splat_gain: float = 1.0, s_max: int = 1, z_near: float = 1.0, edge_tau: float = 0.05, Z_map_original: np.ndarray = None) -> tuple:
+        """
+        Projects 3D points back to 2D pixels with Z-buffering, splatting, and edge masking.
+        
+        Mathematical Formula: [u' v' w]^T = K @ [X Y Z]^T
+        Perspective divide: u = u'/w, v = v'/w
+        Inputs:
+            P: (N, 3) rotated point cloud
+            colors: (N, 3) flat color array aligned with P
+        Output:
+            canvas: (H, W, 3) uint8 image
+            depth_buf: (H, W) float depth buffer
+        """
+        H, W = self.height, self.width
+        
+        # Stretched edge masking
+        if edge_tau is not None and Z_map_original is not None:
+            dZ_dx = np.zeros_like(Z_map_original)
+            dZ_dy = np.zeros_like(Z_map_original)
+            dZ_dx[:, :-1] = np.abs(Z_map_original[:, 1:] - Z_map_original[:, :-1])
+            dZ_dy[:-1, :] = np.abs(Z_map_original[1:, :] - Z_map_original[:-1, :])
+            g = np.maximum(dZ_dx, dZ_dy) / (Z_map_original + 1e-8)
+            
+            valid_edges = (g < edge_tau).flatten()
+            P = P[valid_edges]
+            colors = colors[valid_edges]
+
+        # 1. Near-plane clip
+        Z = P[:, 2]
+        valid_z = Z > z_clip
+        P = P[valid_z]
+        colors = colors[valid_z]
+        Z = Z[valid_z]
+        
+        # 2. Perspective Projection
+        # (N, 3) @ (3, 3) -> (N, 3)
+        uvw = P @ self.K.T
+        u = uvw[:, 0] / Z
+        v = uvw[:, 1] / Z
+        
+        return self._render_points(u, v, Z, colors, H, W, splat_gain, s_max, z_near)
+        
+    def project_orthographic(self, P: np.ndarray, colors: np.ndarray, scale: float = 1.0, splat_gain: float = 1.0, s_max: int = 1, z_near: float = 1.0, edge_tau: float = 0.05, Z_map_original: np.ndarray = None) -> tuple:
+        """
+        Projects 3D points using Orthographic Projection Matrix.
+        Pi = diag(1, 1, 0)
+        
+        Mathematical Formula: [X' Y' 0]^T = Pi @ [X Y Z]^T
+        Inputs:
+            P: (N, 3) point cloud
+            colors: (N, 3) color array
+        Output: (N, 3) -> (H, W, 3) canvas
+        """
+        H, W = self.height, self.width
+        
+        if edge_tau is not None and Z_map_original is not None:
+            dZ_dx = np.zeros_like(Z_map_original)
+            dZ_dy = np.zeros_like(Z_map_original)
+            dZ_dx[:, :-1] = np.abs(Z_map_original[:, 1:] - Z_map_original[:, :-1])
+            dZ_dy[:-1, :] = np.abs(Z_map_original[1:, :] - Z_map_original[:-1, :])
+            g = np.maximum(dZ_dx, dZ_dy) / (Z_map_original + 1e-8)
+            
+            valid_edges = (g < edge_tau).flatten()
+            P = P[valid_edges]
+            colors = colors[valid_edges]
+
+        Pi = np.array([
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 0]
+        ], dtype=np.float32)
+        
+        # (N, 3) @ (3, 3) -> (N, 3)
+        P_ortho = P @ Pi.T
+        
+        # Shift to center and scale
+        u = P_ortho[:, 0] * self.fx * scale + self.cx
+        v = P_ortho[:, 1] * self.fy * scale + self.cy
+        Z = P[:, 2] 
+        
+        return self._render_points(u, v, Z, colors, H, W, splat_gain, s_max, z_near)
+        
+    def _render_points(self, u: np.ndarray, v: np.ndarray, Z: np.ndarray, colors: np.ndarray, H: int, W: int, splat_gain: float, s_max: int, z_near: float) -> tuple:
+        """
+        Vectorized sub-routine for Z-buffering and Splatting.
+        """
+        if s_max > 0:
+            s_i = np.clip(np.ceil(splat_gain * z_near / Z), 0, s_max).astype(np.int32)
+            u_cands, v_cands, z_cands, c_cands = [], [], [], []
+            
+            # Loop over constant offset set [-s_max, s_max]^2 (whitelisted)
+            for dx in range(-s_max, s_max + 1):
+                for dy in range(-s_max, s_max + 1):
+                    mask = s_i >= max(abs(dx), abs(dy))
+                    if np.any(mask):
+                        u_cands.append(u[mask] + dx)
+                        v_cands.append(v[mask] + dy)
+                        z_cands.append(Z[mask])
+                        c_cands.append(colors[mask])
+                        
+            if u_cands:
+                u = np.concatenate(u_cands)
+                v = np.concatenate(v_cands)
+                Z = np.concatenate(z_cands)
+                colors = np.concatenate(c_cands, axis=0)
+
+        # 3. Round to int
+        u_int = np.rint(u).astype(np.int64)
+        v_int = np.rint(v).astype(np.int64)
+        
+        # 4. Bounds mask
+        valid = (u_int >= 0) & (u_int < W) & (v_int >= 0) & (v_int < H)
+        u_int = u_int[valid]
+        v_int = v_int[valid]
+        Z = Z[valid]
+        colors = colors[valid]
+        
+        # Robust Z-buffer
+        idx = v_int * W + u_int
+        order = np.lexsort((Z, idx))
+        idx_s = idx[order]
+        
+        first = np.ones(idx_s.shape, dtype=bool)
+        first[1:] = idx_s[1:] != idx_s[:-1]
+        winners = order[first]
+        
+        canvas = np.zeros((H * W, 3), dtype=np.uint8)
+        depth_buf = np.full(H * W, np.inf, dtype=np.float32)
+        
+        canvas[idx[winners]] = colors[winners]
+        depth_buf[idx[winners]] = Z[winners]
+        
+        return canvas.reshape((H, W, 3)), depth_buf.reshape((H, W))
+
 if __name__ == "__main__":
     print("Testing Stage A fixes...")
     engine = TransformEngine(width=800, height=534)
