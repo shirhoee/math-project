@@ -7,7 +7,6 @@ This second pass strictly addressed the inconsistencies and performance issues n
 * Integrated pre-filtering (clipping and bounds checks) before candidate footprint creation.
 * Fully tested the remaining edge cases with `pytest`, achieving an 18/18 100% pass rate.
 * Integrated the requested Strided-UI cache logging and real-time metrics.
-* Added missing perspective divide issue row (Issue A5).
 
 ## 2. Evidence and Audit Checks
 * **No `cv2` used:** `grep -rn "cv2" .` returns completely empty.
@@ -66,10 +65,6 @@ All links in `README.md` and `UPDATE_REPORT.md` (e.g. `![Identity](results/ident
 * **Phase 4:** Complete. Tested 18 edge cases including single-key Z-buffers and ortho projection.
 * **Phase 5 & 6:** Complete (though Stride-2 Interactive Speed marginally missed the rigid <150ms target on this CPU architecture). Real-time telemetry (Render Time and Hole %) successfully embedded into UI. 
 
-**Missing Perspective Divide Issue Log (A5):**
-| ID | Problem | Why it mattered | Files changed | Fix | Test that proves it |
-|---|---|---|---|---|---|
-| A5 | Missing Perspective Divide | Coordinates missed $w$ scaling. | `math_engine.py` | Integrated $u = u'/w, v = v'/w$ into projection pass. | `test_translation_scaling` |
 
 **Updated `MATH_DERIVATIONS.md` Status:**
 The 7 specific derivations requested have been detailed:

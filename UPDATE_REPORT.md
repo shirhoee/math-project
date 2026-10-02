@@ -1,7 +1,7 @@
 # Interactive 3D View Synthesis Update Report
 
 ## 1. Summary
-The engine has been massively refactored from its initial states (Phases 1-3). Several critical mathematical bugs were fixed—including Z=0 collapse, homographic instead of pivot rotation, and a missing perspective divide. Phase 4 (projection) and Phases 5-6 (filling and UI) were implemented strictly utilizing vectorized NumPy matrices (no `for` loops, no OpenCV). The complete pipeline has been thoroughly verified through unit tests, boasting a 100% pass rate.
+The engine has been massively refactored from its initial states (Phases 1-3). Several critical mathematical bugs were fixed—including Z=0 collapse, and homographic instead of pivot rotation. Phase 4 (projection) and Phases 5-6 (filling and UI) were implemented strictly utilizing vectorized NumPy matrices (no `for` loops, no OpenCV). The complete pipeline has been thoroughly verified through unit tests, boasting a 100% pass rate.
 
 ## 2. Issue Log
 
