@@ -95,9 +95,10 @@ class TransformEngine:
         T_plus_c_t[0:3, 3] = c + t
         return T_plus_c_t @ (R4 @ T_minus_c)
 
-    def project_to_2d(self, P: np.ndarray, colors: np.ndarray, z_clip: float = 1e-3, splat_gain: float = 1.0, s_max: int = 1, stride: int = 1, Z_ref: float = None, edge_tau: float = 0.05, Z_map_original: np.ndarray = None, z_near: float = 1.0) -> tuple:
+    def project_to_2d(self, P: np.ndarray, colors: np.ndarray, z_clip: float = 1e-3, splat_gain: float = 1.0, s_max: int = 1, stride: int = 1, Z_ref: float = None, edge_tau: float = 0.05, Z_map_original: np.ndarray = None, z_near: float = 1.0, edge_mode: str = "demote") -> tuple:
         H, W = self.height, self.width
         
+        edge_flag = None
         if edge_tau is not None and Z_map_original is not None:
             dZ_dx = np.zeros_like(Z_map_original)
             dZ_dy = np.zeros_like(Z_map_original)
@@ -105,25 +106,32 @@ class TransformEngine:
             dZ_dy[:-1, :] = np.abs(Z_map_original[1:, :] - Z_map_original[:-1, :])
             g = np.maximum(dZ_dx, dZ_dy) / (Z_map_original + 1e-8)
             
-            valid_edges = (g < edge_tau).flatten()
-            P = P[valid_edges]
-            colors = colors[valid_edges]
+            mask = (g >= edge_tau).flatten()
+            if edge_mode == "drop":
+                valid_edges = ~mask
+                P = P[valid_edges]
+                colors = colors[valid_edges]
+            else:
+                edge_flag = mask
 
         Z = P[:, 2]
         valid_z = Z > z_clip
         P = P[valid_z]
         colors = colors[valid_z]
         Z = Z[valid_z]
+        if edge_flag is not None:
+            edge_flag = edge_flag[valid_z]
         
         uvw = P @ self.K.T
         u = uvw[:, 0] / Z
         v = uvw[:, 1] / Z
         
-        return self._render_points(u, v, Z, colors, H, W, splat_gain, s_max, stride, Z_ref)
+        return self._render_points(u, v, Z, colors, H, W, splat_gain, s_max, stride, Z_ref, edge_flag)
         
-    def project_orthographic(self, P: np.ndarray, colors: np.ndarray, scale: float = 1.0, splat_gain: float = 1.0, s_max: int = 1, stride: int = 1, Z_ref: float = None, edge_tau: float = 0.05, Z_map_original: np.ndarray = None, z_near: float = 1.0) -> tuple:
+    def project_orthographic(self, P: np.ndarray, colors: np.ndarray, scale: float = 1.0, splat_gain: float = 1.0, s_max: int = 1, stride: int = 1, Z_ref: float = None, edge_tau: float = 0.05, Z_map_original: np.ndarray = None, z_near: float = 1.0, edge_mode: str = "demote") -> tuple:
         H, W = self.height, self.width
         
+        edge_flag = None
         if edge_tau is not None and Z_map_original is not None:
             dZ_dx = np.zeros_like(Z_map_original)
             dZ_dy = np.zeros_like(Z_map_original)
@@ -131,9 +139,13 @@ class TransformEngine:
             dZ_dy[:-1, :] = np.abs(Z_map_original[1:, :] - Z_map_original[:-1, :])
             g = np.maximum(dZ_dx, dZ_dy) / (Z_map_original + 1e-8)
             
-            valid_edges = (g < edge_tau).flatten()
-            P = P[valid_edges]
-            colors = colors[valid_edges]
+            mask = (g >= edge_tau).flatten()
+            if edge_mode == "drop":
+                valid_edges = ~mask
+                P = P[valid_edges]
+                colors = colors[valid_edges]
+            else:
+                edge_flag = mask
 
         Pi = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=np.float32)
         P_ortho = P @ Pi.T
@@ -142,9 +154,9 @@ class TransformEngine:
         v = P_ortho[:, 1] * self.fy * scale + self.cy
         Z = P[:, 2] 
         
-        return self._render_points(u, v, Z, colors, H, W, splat_gain, s_max, stride, Z_ref)
+        return self._render_points(u, v, Z, colors, H, W, splat_gain, s_max, stride, Z_ref, edge_flag)
         
-    def _render_points(self, u: np.ndarray, v: np.ndarray, Z: np.ndarray, colors: np.ndarray, H: int, W: int, splat_gain: float, s_max: int, stride: int, Z_ref: float) -> tuple:
+    def _render_points(self, u: np.ndarray, v: np.ndarray, Z: np.ndarray, colors: np.ndarray, H: int, W: int, splat_gain: float, s_max: int, stride: int, Z_ref: float, edge_flag: np.ndarray = None) -> tuple:
         """
         Vectorized sub-routine for Z-buffering and 2-Pass Fill-Only Adaptive Splatting.
         Quantization logic replaces lexsort with stable single-key argsort for massive perf gains.
@@ -158,6 +170,8 @@ class TransformEngine:
         
         valid = (u_int >= 0) & (u_int < W) & (v_int >= 0) & (v_int < H)
         u_int, v_int, Z, colors = u_int[valid], v_int[valid], Z[valid], colors[valid]
+        if edge_flag is not None:
+            edge_flag = edge_flag[valid]
         
         idx = v_int * W + u_int
         
@@ -188,6 +202,21 @@ class TransformEngine:
             
             canvas[curr_idx[winners]] = curr_C[winners]
             depth_buf[curr_idx[winners]] = curr_Z[winners]
+
+        # Separate exact points from edge points
+        if edge_flag is not None and np.any(edge_flag):
+            exact_mask = ~edge_flag
+            idx_e = idx[edge_flag]
+            Z_e = Z[edge_flag]
+            colors_e = colors[edge_flag]
+            
+            idx = idx[exact_mask]
+            Z = Z[exact_mask]
+            colors = colors[exact_mask]
+            u_int = u_int[exact_mask]
+            v_int = v_int[exact_mask]
+        else:
+            idx_e, Z_e, colors_e = None, None, None
 
         # Pass 1: Exact un-splatted points
         zbuffer_pass(idx, Z, colors, target_empty_only=False)
@@ -230,6 +259,10 @@ class TransformEngine:
                     
                     zbuffer_pass(idx_c, Z_c[val_c], C_c[val_c], target_empty_only=True)
                     
+        # Pass 3: Edge-masked points (demoted, fill-only)
+        if idx_e is not None and len(idx_e) > 0:
+            zbuffer_pass(idx_e, Z_e, colors_e, target_empty_only=True)
+            
         return canvas.reshape((H, W, 3)), depth_buf.reshape((H, W))
 
     def fill_holes_iterative(self, canvas: np.ndarray, depth_buf: np.ndarray, max_iters: int = 15) -> tuple:

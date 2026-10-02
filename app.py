@@ -12,13 +12,18 @@ st.title("Interactive 3D View Synthesis using Linear Transformations")
 def get_depth_model():
     return DepthEstimator()
 
+if 'depth_runs' not in globals():
+    depth_runs = 0
+
 @st.cache_data
 def process_image(image_bytes, fov_deg):
-    print(f"CACHE MISS: Running depth estimation for FOV {fov_deg}...")
+    global depth_runs
+    depth_runs += 1
     image = Image.open(image_bytes).convert("RGB")
     img_array = np.array(image)
     H, W, _ = img_array.shape
     
+    image_bytes.seek(0)
     with open("temp.jpg", "wb") as f:
         f.write(image_bytes.read())
         
@@ -28,6 +33,11 @@ def process_image(image_bytes, fov_deg):
     return disparity, img_array, H, W
 
 uploaded_file = st.sidebar.file_uploader("Upload Image", type=['jpg', 'jpeg', 'png'])
+if uploaded_file is None:
+    # Fallback to sample for testing
+    import io
+    with open('tests/fixtures/sample.jpg', 'rb') as f:
+        uploaded_file = io.BytesIO(f.read())
 
 st.sidebar.header("Transformations")
 pitch = st.sidebar.slider("Pitch (deg)", -25.0, 25.0, 0.0)
@@ -52,9 +62,13 @@ edge_mask = st.sidebar.checkbox("Edge Masking", value=True)
 fill_holes = st.sidebar.checkbox("Hole Filling", value=True)
 hq_render = st.sidebar.button("High Quality Render")
 
+if 'unprojection_runs' not in globals():
+    unprojection_runs = 0
+
 @st.cache_data
 def get_point_cloud(disparity, z_near, z_far, fov_deg, W, H):
-    print("CACHE MISS: Running unprojection...")
+    global unprojection_runs
+    unprojection_runs += 1
     engine = TransformEngine(W, H, fov_deg)
     Z_map = engine.disparity_to_depth(disparity, z_near, z_far)
     P = engine.unproject_to_3d(Z_map)
@@ -106,10 +120,17 @@ if uploaded_file is not None:
         B = np.min(c_v_new[[2, 3, 6, 7]])
         
         if L < R_bound and T < B:
-            crop_scale = max(W / (R_bound - L), H / (B - T))
+            w_valid = R_bound - L
+            h_valid = B - T
+            scale = max(W / w_valid, H / h_valid)
             
-    engine_render.fx *= crop_scale
-    engine_render.fy *= crop_scale
+            center_u = (L + R_bound) / 2
+            center_v = (T + B) / 2
+            
+            engine_render.cx = (engine_render.cx - center_u) * scale + W / 2.0
+            engine_render.cy = (engine_render.cy - center_v) * scale + H / 2.0
+            engine_render.fx *= scale
+            engine_render.fy *= scale
     
     t2 = time.time()
     P_new = engine_render.apply_transform(P_render, R, t, Z_pivot=pivot)
@@ -128,15 +149,15 @@ if uploaded_file is not None:
     total_pixels = depth_buf.size
     
     if fill_holes:
-        if stride > 1:
-            canvas, depth_buf = engine_render.fill_holes_iterative(canvas, depth_buf, max_iters=8)
-        else:
-            canvas, depth_buf = engine_render.fill_holes_pyramid(canvas, depth_buf)
+        canvas, depth_buf = engine_render.fill_holes_pyramid(canvas, depth_buf)
     t4 = time.time()
     
     holes_after = np.sum(np.isinf(depth_buf))
     
     st.image(canvas, caption=f"Rendered View (Stride: {stride})", use_container_width=True)
+    
+    st.text(f"Depth Runs: {depth_runs}")
+    st.text(f"Unprojection Runs: {unprojection_runs}")
     st.image(img_array, caption="Original Image", width=300)
     
     total_render_time = (t4 - t0) * 1000
