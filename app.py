@@ -42,7 +42,7 @@ if uploaded_file is None:
 st.sidebar.header("Transformations")
 pitch = st.sidebar.slider("Pitch (deg)", -25.0, 25.0, 0.0)
 yaw = st.sidebar.slider("Yaw (deg)", -25.0, 25.0, 0.0)
-roll = st.sidebar.slider("Roll (deg)", -25.0, 25.0, 0.0)
+roll = st.sidebar.slider("Roll (deg)", -5.0, 5.0, 0.0, help="Limited to 5 degrees to prevent severe over-cropping.")
 tx = st.sidebar.slider("Translate X", -1.0, 1.0, 0.0)
 ty = st.sidebar.slider("Translate Y", -1.0, 1.0, 0.0)
 tz = st.sidebar.slider("Translate Z", -1.0, 1.0, 0.0)

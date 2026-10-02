@@ -16,14 +16,22 @@ class TransformEngine:
         self.fx = (width / 2.0) / np.tan(fov_rad / 2.0)
         self.fy = self.fx
         
-        # Coordinate Convention: +X right, +Y down, +Z forward
-        self.K = np.array([
+    @property
+    def K(self):
+        return np.array([
             [self.fx, 0,       self.cx],
             [0,       self.fy, self.cy],
             [0,       0,       1      ]
         ], dtype=np.float32)
-        
-        self.K_inv = np.linalg.inv(self.K)
+
+    @property
+    def K_inv(self):
+        # We can optimize inversion since K is triangular
+        return np.array([
+            [1.0/self.fx, 0,          -self.cx/self.fx],
+            [0,           1.0/self.fy, -self.cy/self.fy],
+            [0,           0,           1.0            ]
+        ], dtype=np.float32)
 
     def disparity_to_depth(self, d: np.ndarray, z_near: float = 1.0, z_far: float = 4.0) -> np.ndarray:
         """
