@@ -21,6 +21,7 @@ def test_image(img_path, fov_deg=60.0):
     holes = np.isinf(d).sum() / d.size * 100
     print(f"{os.path.basename(img_path)}: Holes={holes:.2f}%")
 
-test_image('tests/fixtures/gen/indoor.jpg')
-test_image('tests/fixtures/gen/landscape.jpg')
-test_image('tests/fixtures/gen/closeup.jpg')
+if __name__ == "__main__":
+    test_image('tests/fixtures/gen/indoor.jpg')
+    test_image('tests/fixtures/gen/landscape.jpg')
+    test_image('tests/fixtures/gen/closeup.jpg')

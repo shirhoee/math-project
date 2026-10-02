@@ -38,7 +38,7 @@ def test_edge_masking_slanted_plane():
     C_slanted = np.zeros((100, 3), dtype=np.uint8)
     
     # Should drop 0 points since dZ/Z is very small
-    _, depth_slanted = engine.project_to_2d(P_slanted, C_slanted, splat_gain=0, s_max=0, edge_tau=0.05, Z_map_original=z_slanted)
+    _, depth_slanted = engine.project_to_2d(P_slanted, C_slanted, splat_gain=0, s_max=0, edge_tau=0.05, Z_map_original=z_slanted, edge_mode="drop")
     holes_slanted = np.sum(np.isinf(depth_slanted))
     assert holes_slanted == 0
 
@@ -47,7 +47,7 @@ def test_edge_masking_slanted_plane():
     z_step[:, 5:] = 4.0
     P_step = engine.unproject_to_3d(z_step)
     
-    _, depth_step = engine.project_to_2d(P_step, C_slanted, splat_gain=0, s_max=0, edge_tau=0.05, Z_map_original=z_step)
+    _, depth_step = engine.project_to_2d(P_step, C_slanted, splat_gain=0, s_max=0, edge_tau=0.05, Z_map_original=z_step, edge_mode="drop")
     holes_step = np.sum(np.isinf(depth_step))
     assert holes_step > 0 # Points at the discontinuity are dropped
 

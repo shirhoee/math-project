@@ -51,6 +51,7 @@ def run_crop(angle_deg):
     
     print(f"{angle_deg:2} | Old: {retained_old:5.1f}% | Pass-4: {retained_pass4:5.1f}% | New: {retained_new:5.1f}%")
 
-print("Angle | Retained FOV")
-for a in [5, 10, 15, 20, 25]:
-    run_crop(a)
+if __name__ == "__main__":
+    print("Angle | Retained FOV")
+    for a in [5, 10, 15, 20, 25]:
+        run_crop(a)
