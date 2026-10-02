@@ -1,15 +1,15 @@
 # Project Progress Tracker
 
 ## Phase 1: Environment & AI Sensor Setup
-- [ ] Create virtual environment and install dependencies (`numpy`, `torch`, `transformers`, `streamlit`, `pillow`).
-- [ ] Implement `depth_estimator.py` to load an image and return a raw depth array using **Depth Anything V2** (superior to MiDaS for sharp edges).
-- [ ] Test with a sample image and visualize the raw depth map.
-- [ ] *Git Commit & Push*
+- [x] Create virtual environment and install dependencies (`numpy`, `torch`, `transformers`, `streamlit`, `pillow`).
+- [x] Implement `depth_estimator.py` to load an image and return a raw depth array using **Depth Anything V2** (superior to MiDaS for sharp edges).
+- [x] Test with a sample image and visualize the raw depth map.
+- [x] *Git Commit & Push*
 
 ## Phase 2: The Core Math Engine (Unprojection)
-- [ ] Implement Camera Intrinsic Matrix setup.
-- [ ] Write `unproject_to_3d()` using vectorized NumPy operations to map 2D + Depth to a 3D Point Cloud.
-- [ ] *Git Commit & Push*
+- [x] Implement Camera Intrinsic Matrix setup.
+- [x] Write `unproject_to_3d()` using vectorized NumPy operations to map 2D + Depth to a 3D Point Cloud.
+- [x] *Git Commit & Push*
 
 ## Phase 3: The Rotation Engine (Orthogonal Matrices)
 - [ ] Write functions to generate $3 \times 3$ rotation matrices for X (Pitch), Y (Yaw), and Z (Roll).
