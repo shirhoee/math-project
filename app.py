@@ -12,13 +12,12 @@ st.title("Interactive 3D View Synthesis using Linear Transformations")
 def get_depth_model():
     return DepthEstimator()
 
-if 'depth_runs' not in globals():
-    depth_runs = 0
+if 'depth_runs' not in st.session_state:
+    st.session_state.depth_runs = 0
 
 @st.cache_data
 def process_image(image_bytes, fov_deg):
-    global depth_runs
-    depth_runs += 1
+    st.session_state.depth_runs += 1
     image = Image.open(image_bytes).convert("RGB")
     img_array = np.array(image)
     H, W, _ = img_array.shape
@@ -63,13 +62,12 @@ edge_mode = st.sidebar.selectbox("Edge Mode", ["demote", "drop"]) if edge_mask e
 fill_holes = st.sidebar.checkbox("Hole Filling", value=True)
 hq_render = st.sidebar.button("High Quality Render")
 
-if 'unprojection_runs' not in globals():
-    unprojection_runs = 0
+if 'unprojection_runs' not in st.session_state:
+    st.session_state.unprojection_runs = 0
 
 @st.cache_data
 def get_point_cloud(disparity, z_near, z_far, fov_deg, W, H):
-    global unprojection_runs
-    unprojection_runs += 1
+    st.session_state.unprojection_runs += 1
     engine = TransformEngine(W, H, fov_deg)
     Z_map = engine.disparity_to_depth(disparity, z_near, z_far)
     P = engine.unproject_to_3d(Z_map)
@@ -157,8 +155,8 @@ if uploaded_file is not None:
     
     st.image(canvas, caption=f"Rendered View (Stride: {stride})", use_container_width=True)
     
-    st.text(f"Depth Runs: {depth_runs}")
-    st.text(f"Unprojection Runs: {unprojection_runs}")
+    st.text(f"Depth Runs: {st.session_state.depth_runs}")
+    st.text(f"Unprojection Runs: {st.session_state.unprojection_runs}")
     st.image(img_array, caption="Original Image", width=300)
     
     total_render_time = (t4 - t0) * 1000
