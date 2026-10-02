@@ -226,10 +226,14 @@ class TransformEngine:
         else:
             idx_e, Z_e, colors_e = None, None, None
 
-        # Pass 1: Exact un-splatted points
+        # Pass 1: Exact un-splatted points (z-buffer, nearest wins)
         zbuffer_pass(idx, Z, colors, target_empty_only=False)
         
-        # Pass 2: Splatting (Adaptive, Fill-only)
+        # Pass 2: Edge-masked points (demoted, fill empty pixels only)
+        if idx_e is not None and len(idx_e) > 0:
+            zbuffer_pass(idx_e, Z_e, colors_e, target_empty_only=True)
+
+        # Pass 3: Splatting (Adaptive, Fill-only)
         if s_max > 0:
             # Adaptive Splat Footprint Formula
             s_i = np.clip(np.floor(splat_gain * Z_ref / Z), 0, s_max).astype(np.int32)
@@ -245,6 +249,7 @@ class TransformEngine:
                 u_cands, v_cands, z_cands, c_cands = [], [], [], []
                 curr_smax = int(si_s.max())
                 
+                # Loop over 3x3 neighbor offsets (constant set of at most 8 shifts)
                 for dx in range(-curr_smax, curr_smax + 1):
                     for dy in range(-curr_smax, curr_smax + 1):
                         if dx == 0 and dy == 0:
@@ -266,10 +271,6 @@ class TransformEngine:
                     idx_c = v_c[val_c] * W + u_c[val_c]
                     
                     zbuffer_pass(idx_c, Z_c[val_c], C_c[val_c], target_empty_only=True)
-                    
-        # Pass 3: Edge-masked points (demoted, fill-only)
-        if idx_e is not None and len(idx_e) > 0:
-            zbuffer_pass(idx_e, Z_e, colors_e, target_empty_only=True)
             
         return canvas.reshape((H, W, 3)), depth_buf.reshape((H, W))
 
