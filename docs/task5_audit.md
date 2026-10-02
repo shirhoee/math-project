@@ -5,3 +5,4 @@ Stage 2: Fix hole metrics | done | tools/hole_metrics.py (get_max_horizontal_run
 Stage 3: Demote edge masked | done | app.py, math_engine.py, test_edge_mode.py
 Stage 4: Auto-crop off-centre | done | app.py, run_autocrop_check.py
 Stage 5: Evidence | done | test_app_headless.py
+Stage 6: Generalization | done | run_generalization.py, test_multi_image_smoke.py
