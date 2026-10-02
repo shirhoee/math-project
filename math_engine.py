@@ -237,38 +237,58 @@ class TransformEngine:
         Fills holes (pixels with infinite depth) iteratively using background-biased neighbor interpolation.
         Automatically stops when no holes remain.
         """
+        depth_buf = depth_buf.astype(np.float32)
+        canvas = canvas.astype(np.uint8)
         H, W = depth_buf.shape
-        # Cap at 40 iterations
         max_iters = min(max_iters, 40)
         
+        holes = np.isinf(depth_buf)
+        if not np.any(holes):
+            return canvas, depth_buf
+            
+        rows, cols = np.nonzero(holes)
+        r_min, r_max = max(0, rows.min() - 1), min(H, rows.max() + 2)
+        c_min, c_max = max(0, cols.min() - 1), min(W, cols.max() + 2)
+        
+        box_H = r_max - r_min
+        box_W = c_max - c_min
+        d_box = depth_buf[r_min:r_max, c_min:c_max]
+        c_box = canvas[r_min:r_max, c_min:c_max]
+        
+        d_pad = np.pad(d_box, ((1, 1), (1, 1)), mode='constant', constant_values=np.inf)
+        c_pad = np.pad(c_box, ((1, 1), (1, 1), (0, 0)), mode='constant', constant_values=0)
+        
+        shifts = [(-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1)]
+        
         for i in range(max_iters):
-            holes = np.isinf(depth_buf)
-            if not np.any(holes):
+            box_holes = np.isinf(d_box)
+            if not np.any(box_holes):
                 break
                 
-            d_pad = np.pad(depth_buf, 1, constant_values=0)
-            c_pad = np.pad(canvas, ((1, 1), (1, 1), (0, 0)), constant_values=0)
-            d_pad_safe = np.where(np.isinf(d_pad), -1.0, d_pad)
+            best_d = np.full_like(d_box, -1.0)
+            best_c = np.zeros_like(c_box)
             
-            neighbors_d = []
-            neighbors_c = []
-            for dx, dy in [(-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1)]:
-                neighbors_d.append(d_pad_safe[1+dy:H+1+dy, 1+dx:W+1+dx])
-                neighbors_c.append(c_pad[1+dy:H+1+dy, 1+dx:W+1+dx])
+            for dy, dx in shifts:
+                cand_d = d_pad[1+dy:box_H+1+dy, 1+dx:box_W+1+dx]
+                cand_c = c_pad[1+dy:box_H+1+dy, 1+dx:box_W+1+dx]
                 
-            neighbors_d = np.stack(neighbors_d, axis=0)
-            neighbors_c = np.stack(neighbors_c, axis=0)
+                valid = ~np.isinf(cand_d)
+                m = box_holes & valid & (cand_d > best_d)
+                
+                best_d = np.where(m, cand_d, best_d)
+                best_c = np.where(m[..., None], cand_c, best_c)
+                
+            filled = best_d > -0.5
+            d_box[filled] = best_d[filled]
+            c_box[filled] = best_c[filled]
             
-            max_idx = np.argmax(neighbors_d, axis=0)
-            max_d = np.take_along_axis(neighbors_d, max_idx[np.newaxis, ...], axis=0)[0]
-            max_idx_c = np.broadcast_to(max_idx[np.newaxis, ..., np.newaxis], (1, H, W, 3))
-            max_c = np.take_along_axis(neighbors_c, max_idx_c, axis=0)[0]
+            d_pad[1:-1, 1:-1] = d_box
+            c_pad[1:-1, 1:-1] = c_box
             
-            valid_fill = holes & (max_d > 0)
-            depth_buf[valid_fill] = max_d[valid_fill]
-            canvas[valid_fill] = max_c[valid_fill]
-            
-            if i == max_iters - 1 and np.any(np.isinf(depth_buf)):
+            if i == max_iters - 1 and np.any(np.isinf(d_box)):
                 print(f"Hole filling cap reached ({max_iters} iters).")
+                
+        depth_buf[r_min:r_max, c_min:c_max] = d_box
+        canvas[r_min:r_max, c_min:c_max] = c_box
                 
         return canvas, depth_buf

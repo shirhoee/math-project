@@ -5,14 +5,31 @@ import os
 import sys
 
 def test_disparity_direction():
-    # Disparity map: 1 is nearest, 0 is furthest.
-    # Hand-labeled near and far pixel assertion.
-    engine = TransformEngine(100, 100)
-    d = np.array([[1.0, 0.0]]) # 1.0 is near, 0.0 is far
-    z = engine.disparity_to_depth(d, z_near=1.0, z_far=4.0)
+    # Load the real disparity map from Depth Anything V2
+    import os
+    if not os.path.exists('tests/fixtures/sample_disparity.npy'):
+        pytest.skip("Fixture sample_disparity.npy not found")
+        
+    disparity = np.load('tests/fixtures/sample_disparity.npy')
     
-    assert z[0, 0] == 1.0 # nearest
-    assert z[0, 1] == 4.0 # furthest
+    # Near point (person's shirt/body) and far point (background sky/wall)
+    near_idx = (533, 324)
+    far_idx = (141, 6)
+    
+    d_near = disparity[near_idx]
+    d_far = disparity[far_idx]
+    
+    # Model validation: near object must have a larger normalized disparity
+    assert d_near > d_far
+    
+    # Engine validation: near object must have a smaller physical Z depth
+    engine = TransformEngine(disparity.shape[1], disparity.shape[0])
+    z = engine.disparity_to_depth(disparity, z_near=1.0, z_far=4.0)
+    
+    z_near_val = z[near_idx]
+    z_far_val = z[far_idx]
+    
+    assert z_near_val < z_far_val
 
 def test_edge_masking_slanted_plane():
     engine = TransformEngine(10, 10)

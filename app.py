@@ -44,6 +44,7 @@ z_far = st.sidebar.slider("Z Far", 1.0, 20.0, 4.0)
 z_pivot = st.sidebar.number_input("Z Pivot", value=-1.0, help="-1 uses median depth")
 
 st.sidebar.header("Rendering Options")
+auto_crop = st.sidebar.checkbox("Auto Crop Border Voids", value=True)
 ortho = st.sidebar.checkbox("Orthographic Projection")
 ortho_scale = st.sidebar.slider("Ortho Scale", 0.5, 2.0, 1.0)
 splatting = st.sidebar.checkbox("Splatting", value=True)
@@ -51,13 +52,20 @@ edge_mask = st.sidebar.checkbox("Edge Masking", value=True)
 fill_holes = st.sidebar.checkbox("Hole Filling", value=True)
 hq_render = st.sidebar.button("High Quality Render")
 
+@st.cache_data
+def get_point_cloud(disparity, z_near, z_far, fov_deg, W, H):
+    print("CACHE MISS: Running unprojection...")
+    engine = TransformEngine(W, H, fov_deg)
+    Z_map = engine.disparity_to_depth(disparity, z_near, z_far)
+    P = engine.unproject_to_3d(Z_map)
+    return P, Z_map
+
 if uploaded_file is not None:
     disparity, img_array, H, W = process_image(uploaded_file, fov)
     
     t0 = time.time()
     engine = TransformEngine(W, H, fov)
-    Z_map = engine.disparity_to_depth(disparity, z_near, z_far)
-    P = engine.unproject_to_3d(Z_map)
+    P, Z_map = get_point_cloud(disparity, z_near, z_far, fov, W, H)
     colors = img_array.reshape(-1, 3)
     t1 = time.time()
     
@@ -79,6 +87,15 @@ if uploaded_file is not None:
         engine_render = engine
         Z_map_render = Z_map
         
+    crop_scale = 1.0
+    if auto_crop:
+        # Compute roughly how much the image shifted due to rotation
+        max_angle = max(abs(pitch), abs(yaw))
+        crop_scale = 1.0 + np.tan(np.radians(max_angle))
+        
+    engine_render.fx *= crop_scale
+    engine_render.fy *= crop_scale
+    
     t2 = time.time()
     P_new = engine_render.apply_transform(P_render, R, t, Z_pivot=pivot)
     
@@ -87,7 +104,7 @@ if uploaded_file is not None:
     edge_tau = 0.05 if edge_mask else None
     
     if ortho:
-        canvas, depth_buf = engine_render.project_orthographic(P_new, colors_render, scale=ortho_scale, splat_gain=splat_gain, s_max=s_max, edge_tau=edge_tau, Z_map_original=Z_map_render, z_near=z_near)
+        canvas, depth_buf = engine_render.project_orthographic(P_new, colors_render, scale=ortho_scale * crop_scale, splat_gain=splat_gain, s_max=s_max, edge_tau=edge_tau, Z_map_original=Z_map_render, z_near=z_near)
     else:
         canvas, depth_buf = engine_render.project_to_2d(P_new, colors_render, splat_gain=splat_gain, s_max=s_max, edge_tau=edge_tau, Z_map_original=Z_map_render, z_near=z_near)
     t3 = time.time()
@@ -96,7 +113,8 @@ if uploaded_file is not None:
     total_pixels = depth_buf.size
     
     if fill_holes:
-        canvas, depth_buf = engine_render.fill_holes(canvas, depth_buf, max_iters=15)
+        iters = 40 if stride == 1 else 8
+        canvas, depth_buf = engine_render.fill_holes(canvas, depth_buf, max_iters=iters)
     t4 = time.time()
     
     holes_after = np.sum(np.isinf(depth_buf))
