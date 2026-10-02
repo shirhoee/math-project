@@ -9,9 +9,9 @@ This project is built for the **Mathematical Foundation for AI & Data Science** 
 * **Linear Transformations & Vectors**
 
 ## Architecture
-1. **Depth Estimation:** Uses a pre-trained model (e.g., MiDaS) to generate a depth map (Z-axis).
+1. **Depth Estimation:** Uses a pre-trained model (Depth Anything V2) to generate a relative disparity map, which is then converted to a Z-axis depth map.
 2. **Unprojection Engine:** Custom NumPy matrix operations to convert (X, Y, Z) into a 3D Point Cloud.
-3. **Transformation Engine:** Applies custom 3x3 Orthogonal Rotation Matrices (Pitch, Yaw, Roll).
+3. **Transformation Engine:** Applies custom 3x3 Orthogonal Rotation Matrices (Pitch, Yaw, Roll) pivoting around the scene's median depth, with optional camera translation.
 4. **Projection Engine:** Reprojects the transformed 3D points back to a 2D image canvas.
 5. **Frontend:** Streamlit web interface for interactive sliders and image upload.
 
@@ -19,4 +19,17 @@ This project is built for the **Mathematical Foundation for AI & Data Science** 
 Because the 3D space is generated from a single 2D projection, the engine only possesses surface data visible to the camera. When rotating the generated 3D point cloud via orthogonal matrices, regions behind foreground objects (which were occluded in the original 2D projection) will appear as void spaces or "holes". Mathematically, this is because a single projection cannot contain data for coordinate points that were masked by objects with a smaller $Z$ value along the same view vector.
 
 ## Setup & Installation
-*(To be populated as dependencies are added)*
+```bash
+# 1. Create and activate a virtual environment
+python -m venv venv
+# On Windows:
+venv\Scripts\activate
+# On Mac/Linux:
+source venv/bin/activate
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Run the Streamlit UI
+streamlit run app.py
+```
