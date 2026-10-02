@@ -113,8 +113,10 @@ if uploaded_file is not None:
     total_pixels = depth_buf.size
     
     if fill_holes:
-        iters = 40 if stride == 1 else 8
-        canvas, depth_buf = engine_render.fill_holes(canvas, depth_buf, max_iters=iters)
+        if stride > 1:
+            canvas, depth_buf = engine_render.fill_holes_iterative(canvas, depth_buf, max_iters=8)
+        else:
+            canvas, depth_buf = engine_render.fill_holes_pyramid(canvas, depth_buf)
     t4 = time.time()
     
     holes_after = np.sum(np.isinf(depth_buf))

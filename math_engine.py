@@ -232,7 +232,7 @@ class TransformEngine:
                     
         return canvas.reshape((H, W, 3)), depth_buf.reshape((H, W))
 
-    def fill_holes(self, canvas: np.ndarray, depth_buf: np.ndarray, max_iters: int = 15) -> tuple:
+    def fill_holes_iterative(self, canvas: np.ndarray, depth_buf: np.ndarray, max_iters: int = 15) -> tuple:
         """
         Fills holes (pixels with infinite depth) iteratively using background-biased neighbor interpolation.
         Automatically stops when no holes remain.
@@ -292,3 +292,65 @@ class TransformEngine:
         canvas[r_min:r_max, c_min:c_max] = c_box
                 
         return canvas, depth_buf
+
+    def fill_holes_pyramid(self, canvas: np.ndarray, depth_buf: np.ndarray) -> tuple:
+        depth_buf = depth_buf.astype(np.float32)
+        canvas = canvas.astype(np.uint8)
+        
+        holes = np.isinf(depth_buf)
+        if not np.any(holes):
+            return canvas, depth_buf
+            
+        pyr_d = [depth_buf]
+        pyr_c = [canvas]
+        
+        d_curr = depth_buf
+        c_curr = canvas
+        
+        # Max 6 levels
+        for _ in range(6):
+            H, W = d_curr.shape
+            H_next, W_next = H // 2, W // 2
+            if H_next == 0 or W_next == 0:
+                break
+                
+            d_view = d_curr[:H_next*2, :W_next*2].reshape(H_next, 2, W_next, 2)
+            c_view = c_curr[:H_next*2, :W_next*2].reshape(H_next, 2, W_next, 2, 3)
+            
+            d_safe = np.where(np.isinf(d_view), -1.0, d_view)
+            
+            d_next = np.max(d_safe, axis=(1, 3))
+            d_next = np.where(d_next == -1.0, np.inf, d_next)
+            
+            d_flat = d_safe.reshape(H_next, W_next, 4)
+            idx = np.argmax(d_flat, axis=-1)
+            
+            c_flat = c_view.reshape(H_next, W_next, 4, 3)
+            c_next = np.take_along_axis(c_flat, idx[..., None, None], axis=2).squeeze(2)
+            
+            pyr_d.append(d_next)
+            pyr_c.append(c_next)
+            
+            d_curr = d_next
+            c_curr = c_next
+            
+        d_fill = pyr_d[-1].copy()
+        c_fill = pyr_c[-1].copy()
+        
+        for i in range(len(pyr_d) - 2, -1, -1):
+            d_target = pyr_d[i].copy()
+            c_target = pyr_c[i].copy()
+            H, W = d_target.shape
+            
+            d_up = np.repeat(np.repeat(d_fill, 2, axis=0), 2, axis=1)[:H, :W]
+            c_up = np.repeat(np.repeat(c_fill, 2, axis=0), 2, axis=1)[:H, :W]
+            
+            holes = np.isinf(d_target) & ~np.isinf(d_up)
+            
+            d_target[holes] = d_up[holes]
+            c_target[holes] = c_up[holes]
+            
+            d_fill = d_target
+            c_fill = c_target
+            
+        return c_fill, d_fill
