@@ -58,7 +58,7 @@ Despite upgrading to single-key stable sorts (which eliminated the sorting bottl
 ```
 
 ## 5. Phase Documentation and Integrity Checks
-All links in `README.md` and `UPDATE_REPORT.md` (e.g. `![Identity](results/identity.png)`) use valid relative paths matching the `docs/results` structure.
+All links in `README.md` and `UPDATE_REPORT.md` (e.g. `![Identity](docs/results/identity.png)`) use valid relative paths matching the `docs/results` structure.
 
 **Updated `PROGRESS.md` Phases:**
 * **Phase 1-3:** Complete. Thoroughly fixed via Stage A.

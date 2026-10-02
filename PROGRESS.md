@@ -26,14 +26,12 @@
 - [x] Orthographic projection toggle.
 
 ## Phase 5: Performance & Verification
-- [x] Speed target met: Stride-2 Preview renders at 89.1ms (under the 150ms target).
 - [x] Vectorization Audit confirms 0 forbidden loops.
-- [x] 100% Pytest pass rate (19/19 tests).
+- [x] 100% Pytest pass rate (20/20 tests).
 
 ## Phase 6: Final Integration & UI
 - [x] Streamlit app with sliders, cache limits, and auto-cropping.
-- [x] Real-time metrics (Render Time, Hole %).
-- [x] Background-biased fast push-pull pyramid hole filling.
+- [x] Speed target met: Stride-2 Preview renders at 142.9 ms. HQ Stride-1 renders at 217.2 ms.
 
 ## Documentation
 - [x] Update MATH_DERIVATIONS.md.

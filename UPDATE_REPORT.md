@@ -40,19 +40,19 @@ Measured via `time.time()` on Python 3.12 (CPU):
 *(Assets generated in `docs/results/`)*
 
 * **Original View (Identity):** Pixel-perfect matching.
-  ![Identity](results/identity.png)
+  ![Identity](docs/results/identity.png)
 * **Yaw +20 (Pivot Rotation):** True parallax structure maintained.
-  ![Yaw +20](results/yaw_20.png)
+  ![Yaw +20](docs/results/yaw_20.png)
 * **Pitch +20 (Pivot Rotation):** Correct occlusion order.
-  ![Pitch +20](results/pitch_20.png)
+  ![Pitch +20](docs/results/pitch_20.png)
 * **Translation Z:** Accurate FOV scaling.
-  ![Translation Z](results/translation_z.png)
+  ![Translation Z](docs/results/translation_z.png)
 * **Camera-Center Rotation (Homography):** (Notice how flat this looks compared to Pivot rotation)
-  ![Camera Center](results/camera_center_yaw_20.png)
+  ![Camera Center](docs/results/camera_center_yaw_20.png)
 * **Before Edge Masking (Rubber Sheet artifact):** 
-  ![No Edge Mask](results/yaw_20_no_edge.png)
+  ![No Edge Mask](docs/results/yaw_20_no_edge.png)
 * **After Hole Filling:** 
-  ![Filled Holes](results/yaw_20_holes_filled.png)
+  ![Filled Holes](docs/results/yaw_20_holes_filled.png)
 
 ## 6. Parameter Choices
 - **FOV ($60^\circ$):** Standard human/camera field of view. Lower values flatten depth.

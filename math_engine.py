@@ -307,10 +307,18 @@ class TransformEngine:
         d_curr = depth_buf
         c_curr = canvas
         
-        # Max 6 levels
-        for _ in range(6):
+        for _ in range(12):
             H, W = d_curr.shape
-            H_next, W_next = H // 2, W // 2
+            if H <= 1 and W <= 1:
+                break
+                
+            pad_H = H % 2
+            pad_W = W % 2
+            if pad_H or pad_W:
+                d_curr = np.pad(d_curr, ((0, pad_H), (0, pad_W)), mode='constant', constant_values=np.inf)
+                c_curr = np.pad(c_curr, ((0, pad_H), (0, pad_W), (0, 0)), mode='constant', constant_values=0)
+                
+            H_next, W_next = d_curr.shape[0] // 2, d_curr.shape[1] // 2
             if H_next == 0 or W_next == 0:
                 break
                 
@@ -322,10 +330,10 @@ class TransformEngine:
             d_next = np.max(d_safe, axis=(1, 3))
             d_next = np.where(d_next == -1.0, np.inf, d_next)
             
-            d_flat = d_safe.reshape(H_next, W_next, 4)
+            d_flat = d_safe.transpose(0, 2, 1, 3).reshape(H_next, W_next, 4)
             idx = np.argmax(d_flat, axis=-1)
             
-            c_flat = c_view.reshape(H_next, W_next, 4, 3)
+            c_flat = c_view.transpose(0, 2, 1, 3, 4).reshape(H_next, W_next, 4, 3)
             c_next = np.take_along_axis(c_flat, idx[..., None, None], axis=2).squeeze(2)
             
             pyr_d.append(d_next)
