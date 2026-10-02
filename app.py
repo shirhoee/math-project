@@ -89,10 +89,25 @@ if uploaded_file is not None:
         
     crop_scale = 1.0
     if auto_crop:
-        # Compute roughly how much the image shifted due to rotation
-        max_angle = max(abs(pitch), abs(yaw))
-        crop_scale = 1.0 + np.tan(np.radians(max_angle))
+        corners_u = np.array([0, W-1, W-1, 0, 0, W-1, W-1, 0], dtype=np.float32)
+        corners_v = np.array([0, 0, H-1, H-1, 0, 0, H-1, H-1], dtype=np.float32)
+        corners_z = np.array([z_near]*4 + [z_far]*4, dtype=np.float32)
         
+        c_uvw = np.stack([corners_u * corners_z, corners_v * corners_z, corners_z], axis=1)
+        c_P = c_uvw @ engine_render.K_inv.T
+        c_P_new = engine_render.apply_transform(c_P, R, t, Z_pivot=pivot)
+        c_uvw_new = c_P_new @ engine_render.K.T
+        c_u_new = c_uvw_new[:, 0] / c_P_new[:, 2]
+        c_v_new = c_uvw_new[:, 1] / c_P_new[:, 2]
+        
+        L = np.max(c_u_new[[0, 3, 4, 7]])
+        R_bound = np.min(c_u_new[[1, 2, 5, 6]])
+        T = np.max(c_v_new[[0, 1, 4, 5]])
+        B = np.min(c_v_new[[2, 3, 6, 7]])
+        
+        if L < R_bound and T < B:
+            crop_scale = max(W / (R_bound - L), H / (B - T))
+            
     engine_render.fx *= crop_scale
     engine_render.fy *= crop_scale
     
