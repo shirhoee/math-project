@@ -293,6 +293,52 @@ class TransformEngine:
         
         return canvas.reshape((H, W, 3)), depth_buf.reshape((H, W))
 
+    def fill_holes(self, canvas: np.ndarray, depth_buf: np.ndarray, max_iters: int = 15) -> tuple:
+        """
+        Fills holes (pixels with infinite depth) iteratively using background-biased neighbor interpolation.
+        For each hole, it chooses the valid neighbor with the largest depth (furthest away), preventing
+        foreground colors from bleeding into the background.
+        
+        Inputs:
+            canvas: (H, W, 3) image
+            depth_buf: (H, W) depth map
+            max_iters: Number of dilation iterations
+        Outputs:
+            canvas, depth_buf (filled)
+        """
+        H, W = depth_buf.shape
+        for _ in range(max_iters):
+            holes = np.isinf(depth_buf)
+            if not np.any(holes):
+                break
+                
+            d_pad = np.pad(depth_buf, 1, constant_values=0)
+            c_pad = np.pad(canvas, ((1, 1), (1, 1), (0, 0)), constant_values=0)
+            
+            d_pad_safe = np.where(np.isinf(d_pad), -1.0, d_pad)
+            
+            neighbors_d = []
+            neighbors_c = []
+            for dx, dy in [(-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1)]:
+                neighbors_d.append(d_pad_safe[1+dy:H+1+dy, 1+dx:W+1+dx])
+                neighbors_c.append(c_pad[1+dy:H+1+dy, 1+dx:W+1+dx])
+                
+            neighbors_d = np.stack(neighbors_d, axis=0)
+            neighbors_c = np.stack(neighbors_c, axis=0)
+            
+            max_idx = np.argmax(neighbors_d, axis=0)
+            
+            max_d = np.take_along_axis(neighbors_d, max_idx[np.newaxis, ...], axis=0)[0]
+            
+            max_idx_c = np.broadcast_to(max_idx[np.newaxis, ..., np.newaxis], (1, H, W, 3))
+            max_c = np.take_along_axis(neighbors_c, max_idx_c, axis=0)[0]
+            
+            valid_fill = holes & (max_d > 0)
+            depth_buf[valid_fill] = max_d[valid_fill]
+            canvas[valid_fill] = max_c[valid_fill]
+            
+        return canvas, depth_buf
+
 if __name__ == "__main__":
     print("Testing Stage A fixes...")
     engine = TransformEngine(width=800, height=534)
