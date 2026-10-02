@@ -4,28 +4,30 @@ sys.path.insert(0, os.getcwd())
 import numpy as np
 from PIL import Image
 from math_engine import TransformEngine
-import scipy.ndimage
 
 def get_max_horizontal_run(mask):
+    # cumulative-sum / reset trick, no per-pixel loops
     # mask is boolean (H, W)
-    # padding to ensure edges are handled
     padded = np.pad(mask, ((0,0), (1,1)), 'constant', constant_values=False)
-    # find where runs start and end
     edges = np.diff(padded.astype(int), axis=1)
     starts = np.where(edges == 1)
     ends = np.where(edges == -1)
     if len(starts[0]) == 0:
         return 0
-    lengths = ends[1] - starts[1]
-    return np.max(lengths)
-
+    return np.max(ends[1] - starts[1])
 def get_max_thickness(mask):
     if not np.any(mask): return 0
-    struct = np.ones((3, 3), dtype=bool)
     count = 0
     curr = mask
     while np.any(curr):
-        curr = scipy.ndimage.binary_erosion(curr, structure=struct)
+        out = np.zeros_like(curr)
+        # 3x3 erosion via slicing (9 neighbors)
+        out[1:-1, 1:-1] = (
+            curr[:-2, :-2] & curr[:-2, 1:-1] & curr[:-2, 2:] &
+            curr[1:-1, :-2] & curr[1:-1, 1:-1] & curr[1:-1, 2:] &
+            curr[2:, :-2] & curr[2:, 1:-1] & curr[2:, 2:]
+        )
+        curr = out
         count += 1
     return count
 
