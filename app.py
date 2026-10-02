@@ -59,6 +59,7 @@ ortho = st.sidebar.checkbox("Orthographic Projection")
 ortho_scale = st.sidebar.slider("Ortho Scale", 0.5, 2.0, 1.0)
 splatting = st.sidebar.checkbox("Splatting", value=True)
 edge_mask = st.sidebar.checkbox("Edge Masking", value=True)
+edge_mode = st.sidebar.selectbox("Edge Mode", ["demote", "drop"]) if edge_mask else "demote"
 fill_holes = st.sidebar.checkbox("Hole Filling", value=True)
 hq_render = st.sidebar.button("High Quality Render")
 
@@ -140,9 +141,9 @@ if uploaded_file is not None:
     edge_tau = 0.05 if edge_mask else None
     
     if ortho:
-        canvas, depth_buf = engine_render.project_orthographic(P_new, colors_render, scale=ortho_scale * crop_scale, splat_gain=splat_gain, s_max=s_max, edge_tau=edge_tau, Z_map_original=Z_map_render, z_near=z_near)
+        canvas, depth_buf = engine_render.project_orthographic(P_new, colors_render, scale=ortho_scale * crop_scale, splat_gain=splat_gain, s_max=s_max, edge_tau=edge_tau, Z_map_original=Z_map_render, z_near=z_near, edge_mode=edge_mode)
     else:
-        canvas, depth_buf = engine_render.project_to_2d(P_new, colors_render, splat_gain=splat_gain, s_max=s_max, edge_tau=edge_tau, Z_map_original=Z_map_render, z_near=z_near)
+        canvas, depth_buf = engine_render.project_to_2d(P_new, colors_render, splat_gain=splat_gain, s_max=s_max, edge_tau=edge_tau, Z_map_original=Z_map_render, z_near=z_near, edge_mode=edge_mode)
     t3 = time.time()
     
     holes_before = np.sum(np.isinf(depth_buf))
