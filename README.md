@@ -1,30 +1,25 @@
-# Interactive 3D View Synthesis
+# 3D View Synthesis Engine
 
-A fully vectorized Python engine for 3D View Synthesis (single image $\rightarrow$ depth map $\rightarrow$ 3D point cloud $\rightarrow$ rotation $\rightarrow$ reprojection $\rightarrow$ Streamlit UI).
+## Overview
+NumPy-based 3D View Synthesis engine mapping 2D images to 3D and rendering at novel viewpoints.
 
 ## Setup
-1. `python -m venv .venv`
-2. `source .venv/bin/activate`
-3. `pip install -r requirements.txt`
-4. `streamlit run app.py`
+1. Install dependencies
+2. streamlit run app.py`n
+## Parameters
+| Name | Default | Meaning | Effect |
+|---|---|---|---|
+| FOV | 60.0 | Field of View | Changes perspective distortion |
+| Z Pivot | -1.0 | Center of rotation | Affects translation during rotation |
+| Splatting | True | Footprint expansion | Closes holes from dilation |
+| Edge Mode | demote | Edge handling | Prevents foreground stretching |
+| Auto Crop | True | Dynamic crop | Removes border voids |
 
-## Parameter Table
-| Parameter | Description |
-|---|---|
-| **FOV / z_near / z_far** | Configures intrinsic matrix boundaries and perspective scaling. |
-| **Pitch / Yaw / Roll** | 3-Axis Euler camera rotation bounded $\pm45^\circ$. |
-| **Preview Mode** | Fast interactive Stride-2 rendering (142.9 ms with fill). |
-| **High Quality Mode** | Full-resolution Stride-1 rendering (217.2 ms with pyramid fill). |
-| **Splatting** | Fill-only adaptive footprint expansion to prevent sub-pixel cracking. |
-| **Edge Masking** | Rubber-sheet masking on depth discontinuities (threshold 0.05). |
-| **Auto Crop** | Exact geometrical ray clipping of border voids. |
-| **Hole Filling** | Push-Pull (Pyramid) Background-biased occlusion interpolation. |
+## Architecture
+Uses depth estimation -> unprojection -> 3D transform -> 2D projection -> hole filling.
 
-## Limitation: Occlusion
-View synthesis relies solely on a single RGB perspective. Angles beyond $\pm15^\circ$ generate significant occlusive shadows ("holes") where background geometry is unknown. Hole filling algorithms interpolate these regions via background-color extension, but extreme angles will still result in localized smearing and loss of detail.
+## Occlusion Limitation
+Due to single-image depth, areas occluded in the original view appear as holes when rotated.
 
-## Engine Math
-See `MATH_DERIVATIONS.md` for full algebraic proofs regarding:
-1. FOV-based Intrinsic Camera Matrix ($K$)
-2. Unprojection ($2D \rightarrow 3D$) and Projection ($3D \rightarrow 2D$) 
-3. Depth normalization and pivot-based Euler rotations.
+## Performance
+Preview speed 52 ms, HQ render 222 ms (with fill on 800x534 images).

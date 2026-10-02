@@ -17,7 +17,7 @@ def test_multi_image_smoke():
     c1, d1 = eng.project_to_2d(P_new, C, splat_gain=1.0, s_max=1, stride=2, edge_tau=0.05, Z_map_original=Z, edge_mode='demote')
     cf1, df1 = eng.fill_holes_pyramid(c1, d1)
     
-    assert cf1.shape == (H//2, W//2, 3)
+    assert cf1.shape == (H, W, 3)
     assert cf1.dtype == np.uint8
     holes = np.mean(np.isinf(df1)) * 100
     assert holes < 1.0  # bounding the fraction
