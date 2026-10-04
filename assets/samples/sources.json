@@ -1,0 +1,47 @@
+[
+    {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/4/42/Living_room_%284102748829%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "source_page": "https://commons.wikimedia.org/wiki/File:Living_room_(4102748829).jpg",
+        "author": "<a href=\"//commons.wikimedia.org/wiki/User:AnemoneProjectors\" title=\"User:AnemoneProjectors\">AnemoneProjectors</a> (<a href=\"//commons.wikimedia.org/wiki/User_talk:AnemoneProjectors\" title=\"User talk:AnemoneProjectors\"><span class=\"signature-talk\">talk</span></a>)",
+        "license": "CC BY-SA 2.0",
+        "name": "sample_1",
+        "local_path": "assets/samples/01_sample_1.jpg",
+        "contrast": 0.8196078538894653
+    },
+    {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/2/25/Wooden_and_bamboo_facades_of_dwellings_with_sudare_in_a_cobbled_street_of_Gion%2C_perspective_effect_with_vanishing_point%2C_Kyoto%2C_Japan.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "source_page": "https://commons.wikimedia.org/wiki/File:Wooden_and_bamboo_facades_of_dwellings_with_sudare_in_a_cobbled_street_of_Gion,_perspective_effect_with_vanishing_point,_Kyoto,_Japan.jpg",
+        "author": "<bdi><a href=\"//commons.wikimedia.org/wiki/Category:Basile_Morin\" title=\"Category:Basile Morin\">Basile Morin</a></bdi>",
+        "license": "CC BY-SA 4.0",
+        "name": "sample_2",
+        "local_path": "assets/samples/01_sample_2.jpg",
+        "contrast": 0.7254902124404907
+    },
+    {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/5/51/Cheops_Mountain_seen_the_Sir_Donald_Trail.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "source_page": "https://commons.wikimedia.org/wiki/File:Cheops_Mountain_seen_the_Sir_Donald_Trail.jpg",
+        "author": "<a href=\"//commons.wikimedia.org/wiki/User:The_Cosmonaut\" title=\"User:The Cosmonaut\">The Cosmonaut</a>",
+        "license": "CC BY-SA 2.5 ca",
+        "name": "sample_3",
+        "local_path": "assets/samples/01_sample_3.jpg",
+        "contrast": 0.5803921818733215
+    },
+    {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/9/99/Gray_espresso_cup_with_amaretto_1.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "source_page": "https://commons.wikimedia.org/wiki/File:Gray_espresso_cup_with_amaretto_1.jpg",
+        "author": "<b><a href=\"//commons.wikimedia.org/wiki/User:F._Riedelio\" title=\"User:F. Riedelio\">Friedrich Haag</a></b>",
+        "license": "CC BY-SA 4.0",
+        "name": "sample_4",
+        "local_path": "assets/samples/01_sample_4.jpg",
+        "contrast": 0.7803921699523926
+    },
+    {
+        "url": "https://upload.wikimedia.org/wikipedia/commons/5/51/J._Lee_Vause_Park_dog_park.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+        "source_page": "https://commons.wikimedia.org/wiki/File:J._Lee_Vause_Park_dog_park.jpg",
+        "author": "<a href=\"//commons.wikimedia.org/wiki/User:Mjrmtg\" title=\"User:Mjrmtg\">Michael Rivera</a>",
+        "license": "CC BY-SA 4.0",
+        "name": "sample_5",
+        "local_path": "assets/samples/01_sample_5.jpg",
+        "contrast": 0.8470588326454163
+    }
+]
