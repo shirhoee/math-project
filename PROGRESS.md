@@ -26,3 +26,8 @@
 - Multi-image smoke tests on 3 synthetic images.
 - Tests: `tests/test_multi_image_smoke.py`
 - Report: `UPDATE_REPORT_5.md`
+
+## Phase 6: Interactive 3D Viewer — Complete
+- Added atlas rendering (`view_atlas.py`) for instantaneous interactive viewing without server round-trips.
+- UI redesigned: 3D interactive viewer, 'How it works' tab with formulas, live 'Math' tab for verifying orthogonality, and safety-checked GIFs.
+- Tests: `test_atlas.py` and `test_app_smoke.py`.

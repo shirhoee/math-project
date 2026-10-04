@@ -1,24 +1,22 @@
 # 3D View Synthesis Engine
+![Orbit GIF](docs/results/demo_indoor.gif)
 
-## Overview
+This project transforms a single flat photo into an interactive 3D scene you can look around in. It uses a deep learning model to estimate a depth map, then applies pure NumPy linear algebra to unproject the pixels into a 3D point cloud and render it from new viewpoints. The entire rendering pipeline—including rotation, perspective projection, splatting, and hole filling—is built from scratch without standard 3D libraries.
 
-NumPy-only 3D view synthesis engine. Estimates depth from a single image using Depth Anything V2, unprojects to a 3D point cloud, applies user-controlled rotation/translation, and re-renders at the new viewpoint with adaptive splatting, edge demotion, and pyramid hole filling.
-
-## Architecture
-
-1. **Depth estimation** — Depth Anything V2 (Small) produces a disparity map.
-2. **Unprojection** — Disparity → depth → 3D point cloud via camera intrinsics.
-3. **3D transform** — Pivot-based rotation (Euler angles) and translation.
-4. **Perspective projection** — Points → 2D via pinhole model with Z-buffer.
-5. **Render passes** — (1) exact points, (2) demoted edge points (fill-only), (3) adaptive splats (fill-only).
-6. **Pyramid hole fill** — Multi-scale background-biased fill, 0.00% residual holes.
-
-## Setup
-
+## Run It
 ```bash
-pip install streamlit numpy pillow transformers torch
+pip install -r requirements.txt
 streamlit run app.py
 ```
+*Note: On first run, the Depth Anything V2 model weights will be downloaded automatically.*
+
+## How It Works
+```text
+[Original Image] -> (Depth Model) -> [Disparity Map] -> (Intrinsic K^-1) -> [3D Point Cloud] -> (Rotation R) -> [Transformed 3D Points] -> (Intrinsic K + Z-buffer) -> [New View]
+```
+
+## Occlusion Limitation
+Because the input is a single 2D image, the system has no information about what lies behind foreground objects. When rotating the camera, these occluded areas are revealed as "holes." We use an iterative multi-scale pyramid fill to patch these holes using background colors, but at extreme angles, this can look stretched or blocky. For the best experience, keep the rotation angles small (±12°).
 
 ## Parameters
 
