@@ -157,7 +157,7 @@ def layer_homographies(K, R, t, z_k, K_render=None):
     tnT[:, 2] = t
     
     for i in range(L):
-        H_k[i] = K_render @ (R - tnT / z_k[i]) @ K_inv
+        H_k[i] = K_render @ (R + tnT / z_k[i]) @ K_inv
         
     return H_k
 
