@@ -36,11 +36,13 @@ def render_atlas(points: np.ndarray, colors: np.ndarray, K: np.ndarray, H: int, 
             
             yaw_rad = np.radians(yaw_deg)
             pitch_rad = np.radians(pitch_deg)
-            
             R = engine.get_rotation_matrix(pitch_rad, yaw_rad, 0.0)
-            P_new = engine.apply_transform(points, R, Z_pivot=render_kwargs.get('Z_pivot', None))
+            z_piv = render_kwargs.pop('Z_pivot', None) if 'Z_pivot' in render_kwargs else None
+            P_new = engine.apply_transform(points, R, Z_pivot=z_piv)
             
             canvas, depth = engine.project_to_2d(P_new, colors, **render_kwargs)
+            if 'Z_pivot' not in render_kwargs and z_piv is not None:
+                render_kwargs['Z_pivot'] = z_piv # put it back for next iterations
             canvas_filled, _ = engine.fill_holes_pyramid(canvas, depth)
             
             atlas[p, y] = canvas_filled
