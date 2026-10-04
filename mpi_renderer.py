@@ -233,7 +233,7 @@ def bicubic_sample(img, u, v):
     res = np.einsum('nvc,nv->nc', temp, wv)
     return res
 
-def render_mpi(layers, H_k):
+def render_mpi(layers, H_k, downscale=1.0):
     """
     Renders the MPI from the target view defined by homographies H_k.
     layers: (L, H, W, 4) premultiplied RGBA
@@ -242,20 +242,23 @@ def render_mpi(layers, H_k):
     """
     L, H, W, _ = layers.shape
     
-    y, x = np.meshgrid(np.arange(H), np.arange(W), indexing='ij')
+    out_H = int(H * downscale)
+    out_W = int(W * downscale)
+    
+    y, x = np.meshgrid(np.arange(out_H), np.arange(out_W), indexing='ij')
     ones = np.ones_like(x)
     coords = np.stack([x.flatten(), y.flatten(), ones.flatten()], axis=0).astype(np.float32)
     
     H_inv_k = inv3x3(H_k)
-    out_rgb = np.zeros((H, W, 3), dtype=np.float32)
+    out_rgb = np.zeros((out_H, out_W, 3), dtype=np.float32)
     
     for k in range(L):
         H_inv = H_inv_k[k]
         
         src_coords = H_inv @ coords
         src_w = src_coords[2]
-        src_u = (src_coords[0] / src_w).reshape(H, W)
-        src_v = (src_coords[1] / src_w).reshape(H, W)
+        src_u = (src_coords[0] / src_w).reshape(out_H, out_W)
+        src_v = (src_coords[1] / src_w).reshape(out_H, out_W)
         
         # Pass 1: bilinear on alpha only
         layer_alpha = layers[k, ..., 3:4]
@@ -272,8 +275,8 @@ def render_mpi(layers, H_k):
             A_valid = np.clip(sampled_rgba[..., 3], 0.0, 1.0)
             RGB_valid = np.clip(sampled_rgba[..., :3], 0.0, A_valid[..., None])
             
-            src_rgb = np.zeros((H, W, 3), dtype=np.float32)
-            src_a = np.zeros((H, W, 1), dtype=np.float32)
+            src_rgb = np.zeros((out_H, out_W, 3), dtype=np.float32)
+            src_a = np.zeros((out_H, out_W, 1), dtype=np.float32)
             
             src_rgb[valid] = RGB_valid
             src_a[valid, 0] = A_valid
@@ -297,12 +300,15 @@ def parallax_px(z, f, baseline):
     """
     return baseline * f / z
 
-def calibrate_motion(z_near, f, W, target_shift_ratio=0.1):
+def calibrate_motion(z_near, z_far, f, W, yaw_deg, target_ratio=0.07):
     """
-    Computes camera baseline needed to move nearest object by target_shift_ratio * W pixels.
+    Computes camera baseline t_x needed to achieve a target near-to-far shift ratio.
+    Near-to-far shift = (f * t_x / cos(yaw)) * (1/z_near - 1/z_far)
     """
-    target_shift_px = target_shift_ratio * W
-    baseline = (target_shift_px * z_near) / f
+    if z_far <= z_near: return 0.0
+    yaw_rad = np.radians(yaw_deg)
+    target_shift_px = target_ratio * W
+    baseline = (target_shift_px * np.cos(yaw_rad)) / (f * (1.0/z_near - 1.0/z_far))
     return baseline
 
 def unsharp_mask(img, amount=0.35):
@@ -318,8 +324,8 @@ def unsharp_mask(img, amount=0.35):
     out[1:-1, 1:-1] = center + amount * laplacian
     return np.clip(out, 0, 255).astype(np.uint8)
 
-def _render_single_frame(layers, H_k, quality=80, sharpen_amount=0.0):
-    frame = render_mpi(layers, H_k)
+def _render_single_frame(layers, H_k, quality=80, sharpen_amount=0.0, downscale=1.0):
+    frame = render_mpi(layers, H_k, downscale)
     if sharpen_amount > 0:
         frame = unsharp_mask(frame, sharpen_amount)
     img = Image.fromarray(frame)
@@ -328,7 +334,7 @@ def _render_single_frame(layers, H_k, quality=80, sharpen_amount=0.0):
     b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
     return f"data:image/jpeg;base64,{b64}"
 
-def render_atlas_mpi(layers, z_k, K, angles, baseline_x_max, baseline_y_max, max_yaw=12.0, max_pitch=8.0, sharpen_amount=0.0):
+def render_atlas_mpi(layers, z_k, K, angles, baseline_x_max, baseline_y_max, max_yaw=12.0, max_pitch=8.0, sharpen_amount=0.0, z_pivot=None):
     """
     Renders an atlas of frames using the MPI layered renderer in parallel.
     angles: (n_pitch, n_yaw, 2)
@@ -336,6 +342,8 @@ def render_atlas_mpi(layers, z_k, K, angles, baseline_x_max, baseline_y_max, max
         frames: list of base64 strings (flat)
     """
     n_pitch, n_yaw, _ = angles.shape
+    if z_pivot is None:
+        z_pivot = (np.min(z_k) + np.max(z_k)) / 2.0
     
     # Pre-calculate R and t for each view
     from math_engine import TransformEngine
@@ -367,15 +375,18 @@ def render_atlas_mpi(layers, z_k, K, angles, baseline_x_max, baseline_y_max, max
                 t_x = baseline_x_max * (yaw_deg / max_yaw) if max_yaw > 0 else 0
                 t_y = baseline_y_max * (pitch_deg / max_pitch) if max_pitch > 0 else 0
                 
-                t = np.array([t_x, t_y, 0.0], dtype=np.float32)
+                t_extra = np.array([t_x, t_y, 0.0], dtype=np.float32)
                 R = engine.get_rotation_matrix(np.radians(pitch_deg), np.radians(yaw_deg), 0.0)
                 
-                # Pose-dependent zoom
-                # margin = shift in pixels / half-width or half-height
+                c = np.array([0.0, 0.0, z_pivot], dtype=np.float32)
+                t = c - R @ c + t_extra
+                
                 fx, fy = K[0, 0], K[1, 1]
                 z_near = np.min(z_k)
-                shift_x_px = np.abs(t_x) * fx / z_near
-                shift_y_px = np.abs(t_y) * fy / z_near
+                # Max displacement is dominated by near-to-far shift
+                # At z_near, shift is t[0]*f/z_near. But wait, we want exact shift:
+                shift_x_px = np.abs(t[0] * fx / z_near + fx * R[0,2])
+                shift_y_px = np.abs(t[1] * fy / z_near + fy * R[1,2])
                 margin = max(shift_x_px / (layers.shape[2] / 2.0), shift_y_px / (layers.shape[1] / 2.0))
                 zoom = 1.0 + margin
                 
@@ -383,9 +394,18 @@ def render_atlas_mpi(layers, z_k, K, angles, baseline_x_max, baseline_y_max, max
                 K_render[0, 0] *= zoom
                 K_render[1, 1] *= zoom
                 
-                H_k = layer_homographies(K, R, t, z_k, K_render=K_render)
-                tasks.append(executor.submit(_render_single_frame, layers, H_k, 80, sharpen_amount))
+                # Render pitch rows at lower res? 
+                downscale = 1.0
+                if p != n_pitch // 2:
+                    downscale = 0.5
+                    
+                K_render[:2, :] *= downscale
                 
-        frames = [future.result() for future in tasks]
+                H_k = layer_homographies(K, R, t, z_k, K_render=K_render)
+                tasks.append((p, y, executor.submit(_render_single_frame, layers, H_k, 80, sharpen_amount, downscale)))
+                
+        # To keep the order:
+        tasks.sort(key=lambda x: (x[0], x[1]))
+        frames = [t[2].result() for t in tasks]
         
     return frames

@@ -102,11 +102,11 @@ def build_atlas_points(P, colors, K, H, W, n_yaw, n_pitch, max_yaw, max_pitch, z
     return frames_b64, atlas, angles
 
 @st.cache_data(show_spinner="Rendering views (MPI)...")
-def build_atlas_layered(layers, z_k, K, W, H, n_yaw, n_pitch, max_yaw, max_pitch, z_near, sharpen_amount=0.0):
+def build_atlas_layered(layers, z_k, K, W, H, n_yaw, n_pitch, max_yaw, max_pitch, z_near, sharpen_amount=0.0, target_shift_ratio=0.07):
     angles = orbit_angles(n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch)
     
-    baseline_x = calibrate_motion(z_near, K[0, 0], W, 0.05)
-    baseline_y = calibrate_motion(z_near, K[1, 1], H, 0.05)
+    baseline_x = calibrate_motion(z_near, np.max(z_k), K[0, 0], W, max_yaw, target_shift_ratio)
+    baseline_y = calibrate_motion(z_near, np.max(z_k), K[1, 1], H, max_pitch, target_shift_ratio)
     
     frames_b64 = render_atlas_mpi(layers, z_k, K, angles, baseline_x, baseline_y, max_yaw, max_pitch, sharpen_amount)
     return frames_b64, angles, baseline_x, baseline_y
@@ -117,7 +117,7 @@ if "selected_image_path" not in st.session_state:
     st.session_state.selected_image_path = sample_imgs[0] if sample_imgs else None
 
 # --- UI ---
-st.title("Interactive 3D Photo Viewer")
+st.title("Interactive 3D View Synthesis")
 st.markdown("A single photo becomes a 3D scene you can look around in: depth estimation plus linear algebra.")
 
 c1, c2, c3 = st.columns([1, 1, 2])
@@ -147,6 +147,8 @@ with st.expander("Settings", expanded=False):
     scol1, scol2 = st.columns(2)
     with scol1:
         renderer = st.radio("Renderer", ["Layers (MPI)", "Point Splatting (Original)"])
+        motion_preset = st.selectbox("Motion Preset", ["Subtle (0.04)", "Normal (0.07)", "Dramatic (0.11)"], index=1)
+        target_shift_ratio = float(motion_preset.split("(")[1].split(")")[0])
         fov = st.slider("FOV (deg)", 30.0, 120.0, 60.0)
         z_near = st.slider("Z Near", 0.1, 5.0, 1.0)
         z_far = st.slider("Z Far", 1.0, 20.0, 4.0)
@@ -160,6 +162,8 @@ with st.expander("Settings", expanded=False):
             n_layers = st.slider("MPI Layers", 4, 32, 16)
             sharpen_amount = st.slider("Sharpen Amount", 0.0, 1.0, 0.35)
     
+    blend_mode = st.radio("Viewer Blending", ["Cross-blend", "Nearest"])
+    
     st.markdown("### Diagnostics")
     diag_placeholder = st.empty()
 
@@ -168,10 +172,26 @@ t0 = time.time()
 disparity, img_array, H, W = process_image(st.session_state.selected_image_path)
 t1 = time.time()
 
+is_test = os.environ.get("FAST_TEST", "0") == "1"
+if is_test:
+    import cv2
+    img_array = cv2.resize(img_array, (W//4, H//4))
+    disparity = cv2.resize(disparity, (W//4, H//4))
+    H, W = img_array.shape[:2]
+
 engine = TransformEngine(W, H, fov)
 
-n_yaw, n_pitch = 9, 5
-max_yaw, max_pitch = 12.0, 8.0
+is_test = os.environ.get("FAST_TEST", "0") == "1"
+if is_test:
+    n_yaw, n_pitch = 3, 1
+    max_yaw, max_pitch = 2.0, 1.0
+else:
+    parallax_total = 2 * target_shift_ratio * W
+    cols = int(np.ceil(parallax_total / 2.5)) + 1
+    if cols % 2 == 0: cols += 1
+    n_yaw = min(cols, 41)
+    n_pitch = 3
+    max_yaw, max_pitch = 12.0, 8.0
 
 if renderer == "Point Splatting (Original)":
     P, Z_map = get_point_cloud(disparity, z_near, z_far, fov, W, H)
@@ -191,7 +211,7 @@ else:
     t2 = time.time()
     
     frames_b64, angles, base_x, base_y = build_atlas_layered(
-        layers, z_k, engine.K, W, H, n_yaw, n_pitch, max_yaw, max_pitch, z_near, sharpen_amount
+        layers, z_k, engine.K, W, H, n_yaw, n_pitch, max_yaw, max_pitch, z_near, sharpen_amount, target_shift_ratio
     )
     t3 = time.time()
 
@@ -220,6 +240,7 @@ with tab_viewer:
     const framesData = {js_frames_array};
     const nYaw = {n_yaw};
     const nPitch = {n_pitch};
+    const blendMode = "{blend_mode}";
     const canvas = document.getElementById('view-canvas');
     const ctx = canvas.getContext('2d');
     const container = document.getElementById('viewer');
@@ -255,6 +276,17 @@ with tab_viewer:
         let p0 = Math.floor(p), p1 = p0 + 1;
         let y0 = Math.floor(y), y1 = y0 + 1;
         
+        if (loadedCount < images.length) return;
+        
+        if (blendMode === "Nearest") {{
+            let p_near = Math.round(p);
+            let y_near = Math.round(y);
+            ctx.globalAlpha = 1.0;
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.drawImage(images[p_near * nYaw + y_near], 0, 0);
+            return;
+        }}
+        
         let wp1 = p - p0, wp0 = 1 - wp1;
         let wy1 = y - y0, wy0 = 1 - wy1;
         
@@ -262,8 +294,6 @@ with tab_viewer:
         let w01 = wp0 * wy1;
         let w10 = wp1 * wy0;
         let w11 = wp1 * wy1;
-        
-        if (loadedCount < images.length) return;
         
         ctx.globalCompositeOperation = 'source-over';
         ctx.clearRect(0, 0, canvas.width, canvas.height);

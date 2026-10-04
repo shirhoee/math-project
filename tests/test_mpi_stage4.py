@@ -5,9 +5,10 @@ def test_parallax_px():
     assert np.isclose(parallax_px(10.0, 500.0, 2.0), 100.0)
 
 def test_calibrate_motion():
-    # z_near=1.0, f=500.0, W=1000, ratio=0.1 => shift_px = 100
-    # baseline = 100 * 1.0 / 500.0 = 0.2
-    assert np.isclose(calibrate_motion(1.0, 500.0, 1000, 0.1), 0.2)
+    # z_near=1.0, z_far=4.0, f=500.0, W=1000, yaw_deg=0.0, ratio=0.1 => shift_px = 100
+    # shift = (f * tx / cos(yaw)) * (1/z_near - 1/z_far) = (500 * tx / 1) * (1 - 0.25) = 500 * tx * 0.75 = 375 * tx
+    # target shift = 100. So 375 * tx = 100 => tx = 100 / 375 = 0.2666...
+    assert np.isclose(calibrate_motion(1.0, 4.0, 500.0, 1000, 0.0, 0.1), 100.0 / 375.0)
 
 def test_render_atlas_mpi():
     # Smoke test

@@ -67,10 +67,19 @@ def main():
         z_pivot = float(np.median(P[:, 2]))
         
         # 1. POINT RENDERER
-        colors = img_array.reshape(-1, 3)
         t_pt0 = time.time()
-        n_yaw, n_pitch = 9, 5
+        colors = img_array.reshape(-1, 3)
+        n_layers = 16
+        target_shift_ratio = 0.07
+        parallax_total = 2 * target_shift_ratio * W
+        cols = int(np.ceil(parallax_total / 2.5)) + 1
+        if cols % 2 == 0: cols += 1
+        n_yaw = min(cols, 41)
+        n_pitch = 3
         max_yaw, max_pitch = 12.0, 8.0
+        
+        name = os.path.basename(path)[:10]
+        print(f"\nConfiguration for {name}: W={W}, H={H}, layers={n_layers}, preset={target_shift_ratio}, frames={n_yaw}x{n_pitch}")
         
         from view_atlas import orbit_angles
         angles = orbit_angles(n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch)
@@ -83,13 +92,13 @@ def main():
         
         # 2. MPI RENDERER
         t_mpi0 = time.time()
-        layers, z_k = build_layers(img_array, disparity, z_near, z_far, n_layers=16)
+        layers, z_k = build_layers(img_array, disparity, z_near, z_far, n_layers=n_layers)
         t_build_mpi = time.time() - t_mpi0
         
         t_mpi_atlas0 = time.time()
         from mpi_renderer import calibrate_motion, render_atlas_mpi
-        baseline_x = calibrate_motion(z_near, engine.K[0,0], W, 0.05) # 5% shift
-        baseline_y = calibrate_motion(z_near, engine.K[1,1], H, 0.05)
+        baseline_x = calibrate_motion(z_near, np.max(z_k), engine.K[0,0], W, max_yaw, 0.07)
+        baseline_y = calibrate_motion(z_near, np.max(z_k), engine.K[1,1], H, max_pitch, 0.07)
         
         # We also need H_k_center and H_k_max to compute the metrics
         from mpi_renderer import layer_homographies
@@ -97,8 +106,18 @@ def main():
         mpi_center = render_mpi(layers, H_k_center)
         
         yaw_deg = max_yaw
-        t_max = np.array([baseline_x, 0.0, 0.0], dtype=np.float32)
-        H_k_max = layer_homographies(engine.K, np.eye(3), t_max, z_k)
+        t_extra = np.array([baseline_x, 0.0, 0.0], dtype=np.float32)
+        R_max = engine.get_rotation_matrix(0.0, np.radians(yaw_deg), 0.0)
+        c = np.array([0.0, 0.0, z_pivot], dtype=np.float32)
+        t_max = c - R_max @ c + t_extra
+        
+        shift_x_px = np.abs(t_max[0] * engine.K[0,0] / z_near + engine.K[0,0] * R_max[0,2])
+        zoom = 1.0 + shift_x_px / (W / 2.0)
+        K_render = engine.K.copy()
+        K_render[0,0] *= zoom
+        K_render[1,1] *= zoom
+        
+        H_k_max = layer_homographies(engine.K, R_max, t_max, z_k, K_render=K_render)
         mpi_max_yaw = render_mpi(layers, H_k_max)
         t_mpi_atlas1 = time.time()
         
@@ -135,7 +154,9 @@ def main():
                     alpha_rem *= (1.0 - layers[k, ..., 3])
                 final_a = 1.0 - alpha_rem
                 black_hole_fraction = np.mean(final_a < 0.99)
-                parallax_ratio = (np.abs(baseline_x) * engine.K[0,0] / z_near) / W / 0.05
+                
+                actual_shift = (engine.K[0,0] * np.abs(baseline_x) / np.cos(np.radians(max_yaw))) * (1.0/z_near - 1.0/np.max(z_k))
+                parallax_ratio = actual_shift / (W * 0.07)
                 
                 # With sharpening
                 from mpi_renderer import unsharp_mask
