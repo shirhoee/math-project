@@ -6,23 +6,25 @@ import time
 import io
 import os
 import glob
+import math
 
 from depth_estimator import DepthEstimator
 from math_engine import TransformEngine
 from view_atlas import orbit_angles, render_atlas, render_external_view, depth_colormap
+from mpi_renderer import build_layers, render_atlas_mpi, calibrate_motion, render_mpi, layer_homographies
 
 st.set_page_config(page_title="3D View Synthesis", layout="wide")
 
-# CSS for dark simple styling and hiding defaults
+# CSS
 st.markdown("""
 <style>
 .viewer-container {
     position: relative;
     width: 100%;
-    max-width: 600px;
+    max-width: 800px;
     margin: 0 auto;
 }
-.viewer-container img {
+.viewer-container canvas {
     width: 100%;
     height: auto;
     display: block;
@@ -31,21 +33,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_resource
-def get_depth_model():
-    return DepthEstimator()
+def get_depth_model(size="Small"):
+    return DepthEstimator(size=size)
 
 @st.cache_data(show_spinner="Estimating depth...")
-def process_image(img_path):
+def process_image(img_path, model_size="Small", refine=True):
     image = Image.open(img_path).convert("RGB")
     img_array = np.array(image)
     H, W, _ = img_array.shape
     
-    # Save a temporary copy for the model
-    temp_path = "temp.jpg"
-    image.save(temp_path)
-    
-    model = get_depth_model()
-    disparity = model.estimate_depth(temp_path)
+    model = get_depth_model(model_size)
+    disparity = model.estimate_depth(img_path, refine_depth=refine)
     
     return disparity, img_array, H, W
 
@@ -56,15 +54,16 @@ def get_point_cloud(disparity, z_near, z_far, fov_deg, W, H):
     P = engine.unproject_to_3d(Z_map)
     return P, Z_map
 
-@st.cache_data(show_spinner="Rendering views...")
-def build_atlas(P, colors, K, H, W, n_yaw, n_pitch, max_yaw, max_pitch, z_pivot, edge_tau, edge_mode, s_max, z_near):
-    # Downscale for preview atlas
-    scale = min(1.0, 480.0 / W)
-    W_s, H_s = int(W * scale), int(H * scale)
-    
+@st.cache_data(show_spinner="Building MPI Layers...")
+def build_mpi(img_array, disparity, z_near, z_far, n_layers=16):
+    layers, z_k = build_layers(img_array, disparity, z_near, z_far, n_layers)
+    return layers, z_k
+
+@st.cache_data(show_spinner="Rendering views (Point Splatting)...")
+def build_atlas_points(P, colors, K, H, W, n_yaw, n_pitch, max_yaw, max_pitch, z_pivot, edge_tau, edge_mode, s_max, z_near):
+    scale = 1.0
+    W_s, H_s = W, H
     K_s = K.copy()
-    K_s[0, 0] *= scale; K_s[1, 1] *= scale
-    K_s[0, 2] *= scale; K_s[1, 2] *= scale
     
     engine_render = TransformEngine(W_s, H_s, 60)
     engine_render.fx = K_s[0, 0]
@@ -72,83 +71,88 @@ def build_atlas(P, colors, K, H, W, n_yaw, n_pitch, max_yaw, max_pitch, z_pivot,
     engine_render.cx = K_s[0, 2]
     engine_render.cy = K_s[1, 2]
     
-    # 1. Per-image safety: check extreme frames before full render
-    extreme_angles = np.array([[max_yaw, max_pitch], [-max_yaw, -max_pitch], [max_yaw, -max_pitch], [-max_yaw, max_pitch]])
-    max_hole_frac = 0.0
-    for pt in extreme_angles:
-        y_r = np.radians(pt[0])
-        p_r = np.radians(pt[1])
-        R = engine_render.get_rotation_matrix(p_r, y_r, 0.0)
-        P_new = engine_render.apply_transform(P, R, Z_pivot=z_pivot)
-        _, depth = engine_render.project_to_2d(P_new, colors, edge_tau=edge_tau, edge_mode=edge_mode, s_max=s_max, z_near=z_near)
-        frac = np.sum(np.isinf(depth)) / depth.size
-        max_hole_frac = max(max_hole_frac, float(frac))
-        
-    shrink_factor = 1.0
-    if max_hole_frac > 0.08:
-        # shrink factor proportional to exceeding
-        shrink_factor = 0.08 / max_hole_frac
-        max_yaw *= shrink_factor
-        max_pitch *= shrink_factor
-
     angles = orbit_angles(n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch)
     
     atlas = render_atlas(
         P, colors, K_s, H_s, W_s, angles,
         Z_pivot=z_pivot, edge_tau=edge_tau, edge_mode=edge_mode, s_max=s_max, z_near=z_near
     )
-    return atlas, angles, W_s, H_s, max_hole_frac, shrink_factor
+    
+    # Generate Base64
+    frames_b64 = []
+    for p in range(n_pitch):
+        for y in range(n_yaw):
+            img = Image.fromarray(atlas[p, y])
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=80)
+            b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+            frames_b64.append(f"data:image/jpeg;base64,{b64}")
+            
+    return frames_b64, atlas, angles
 
-# Main UI
-st.title("Interactive 3D View Synthesis")
+@st.cache_data(show_spinner="Rendering views (MPI)...")
+def build_atlas_layered(layers, z_k, K, W, H, n_yaw, n_pitch, max_yaw, max_pitch, z_near):
+    angles = orbit_angles(n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch)
+    
+    # baseline so that max_yaw produces a shift of 10% of width
+    # actually, calibration gives baseline for target_shift_ratio
+    # Let's say max_yaw corresponds to 5% shift
+    baseline_x = calibrate_motion(z_near, K[0, 0], W, 0.05)
+    baseline_y = calibrate_motion(z_near, K[1, 1], H, 0.05)
+    
+    frames_b64 = render_atlas_mpi(layers, z_k, K, angles, baseline_x, baseline_y, max_yaw, max_pitch)
+    return frames_b64, angles, baseline_x, baseline_y
+
+# --- STATE ---
+if "selected_image_path" not in st.session_state:
+    sample_imgs = sorted(glob.glob("assets/samples/01_*.jpg"))
+    st.session_state.selected_image_path = sample_imgs[0] if sample_imgs else None
+
+# --- UI ---
+st.title("Interactive 3D Photo Viewer")
 st.markdown("A single photo becomes a 3D scene you can look around in: depth estimation plus linear algebra.")
 
-# Samples and uploader
-samples = sorted(glob.glob("assets/samples/*.jpg")) + sorted(glob.glob("tests/fixtures/gen/*.jpg"))
-samples = list(dict.fromkeys(samples))[:3] # unique first 3
+c1, c2, c3 = st.columns([1, 1, 2])
+sample_imgs = sorted(glob.glob("assets/samples/01_*.jpg"))
+for i, col in enumerate([c1, c2, c3]):
+    if i < len(sample_imgs):
+        img_path = sample_imgs[i]
+        with col:
+            st.image(img_path, use_container_width=True)
+            if st.button(f"Load Sample {i+1}", key=f"load_{i}"):
+                st.session_state.selected_image_path = img_path
+                st.rerun()
 
-col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
-clicked_sample = None
-with col1:
-    if len(samples) > 0 and st.button("Sample 1"): clicked_sample = samples[0]
-with col2:
-    if len(samples) > 1 and st.button("Sample 2"): clicked_sample = samples[1]
-with col3:
-    if len(samples) > 2 and st.button("Sample 3"): clicked_sample = samples[2]
-with col4:
-    uploaded_file = st.file_uploader("Or upload your own", type=['jpg', 'jpeg', 'png'])
+uploaded = st.file_uploader("Upload your own photo (JPEG/PNG)", type=["jpg", "jpeg", "png"])
+if uploaded is not None:
+    path = f"assets/samples/upload_{uploaded.name}"
+    with open(path, "wb") as f:
+        f.write(uploaded.getbuffer())
+    st.session_state.selected_image_path = path
+    st.rerun()
 
-# Initialize session state for selected image
-if 'selected_image_path' not in st.session_state:
-    st.session_state.selected_image_path = samples[0] if samples else None
-
-if uploaded_file is not None:
-    temp_path = "temp_uploaded.jpg"
-    with open(temp_path, "wb") as f:
-        f.write(uploaded_file.read())
-    st.session_state.selected_image_path = temp_path
-elif clicked_sample is not None:
-    st.session_state.selected_image_path = clicked_sample
-
-if st.session_state.selected_image_path is None:
+if not st.session_state.selected_image_path:
     st.stop()
 
-# --- SETTINGS (Collapsed) ---
-with st.expander("Settings & Diagnostics"):
+# --- SETTINGS ---
+with st.expander("Settings", expanded=False):
     scol1, scol2 = st.columns(2)
     with scol1:
+        renderer = st.radio("Renderer", ["Layers (MPI)", "Point Splatting (Original)"])
         fov = st.slider("FOV (deg)", 30.0, 120.0, 60.0)
         z_near = st.slider("Z Near", 0.1, 5.0, 1.0)
         z_far = st.slider("Z Far", 1.0, 20.0, 4.0)
     with scol2:
-        pivot_mode = st.selectbox("Pivot", ["Median Depth", "Center"])
-        edge_mode = st.selectbox("Edge Mode", ["demote", "drop"])
-        splat_size = st.slider("Splat Size", 0, 5, 2)
-        fill_holes = st.checkbox("Hole Filling", value=True)
+        if renderer == "Point Splatting (Original)":
+            pivot_mode = st.selectbox("Pivot", ["Median Depth", "Center"])
+            edge_mode = st.selectbox("Edge Mode", ["demote", "drop"])
+            splat_size = st.slider("Splat Size", 0, 5, 2)
+            fill_holes = st.checkbox("Hole Filling", value=True)
+        else:
+            n_layers = st.slider("MPI Layers", 4, 32, 16)
     
     st.markdown("### Diagnostics")
     diag_placeholder = st.empty()
-
 
 # --- PROCESS IMAGE ---
 t0 = time.time()
@@ -156,67 +160,122 @@ disparity, img_array, H, W = process_image(st.session_state.selected_image_path)
 t1 = time.time()
 
 engine = TransformEngine(W, H, fov)
-P, Z_map = get_point_cloud(disparity, z_near, z_far, fov, W, H)
-colors = img_array.reshape(-1, 3)
-t2 = time.time()
-
-z_pivot = float(np.median(P[:, 2])) if pivot_mode == "Median Depth" else (z_near + z_far)/2.0
-edge_tau = 0.05
 
 n_yaw, n_pitch = 9, 5
 max_yaw, max_pitch = 12.0, 8.0
 
-atlas, angles, W_s, H_s, max_hole_frac, shrink_factor = build_atlas(
-    P, colors, engine.K, H, W, n_yaw, n_pitch, max_yaw, max_pitch,
-    z_pivot, edge_tau, edge_mode, splat_size, z_near
-)
-t3 = time.time()
+if renderer == "Point Splatting (Original)":
+    P, Z_map = get_point_cloud(disparity, z_near, z_far, fov, W, H)
+    colors = img_array.reshape(-1, 3)
+    t2 = time.time()
+    
+    z_pivot = float(np.median(P[:, 2])) if pivot_mode == "Median Depth" else (z_near + z_far)/2.0
+    edge_tau = 0.05
+    
+    frames_b64, atlas, angles = build_atlas_points(
+        P, colors, engine.K, H, W, n_yaw, n_pitch, max_yaw, max_pitch,
+        z_pivot, edge_tau, edge_mode, splat_size, z_near
+    )
+    t3 = time.time()
+else:
+    layers, z_k = build_mpi(img_array, disparity, z_near, z_far, n_layers)
+    t2 = time.time()
+    
+    frames_b64, angles, base_x, base_y = build_atlas_layered(
+        layers, z_k, engine.K, W, H, n_yaw, n_pitch, max_yaw, max_pitch, z_near
+    )
+    t3 = time.time()
 
 # Diagnostics update
 with diag_placeholder.container():
     st.write(f"- Depth Estimation: {(t1-t0)*1000:.1f} ms")
-    st.write(f"- Unprojection: {(t2-t1)*1000:.1f} ms")
-    st.write(f"- Atlas Rendering (45 views): {(t3-t2)*1000:.1f} ms")
-    st.write(f"- Max hole fraction before fill: {max_hole_frac*100:.2f}%")
-    if shrink_factor < 1.0:
-        st.write(f"- **Safety triggered:** Angle range shrunk by factor {shrink_factor:.2f}")
-
-# Generate Base64 frames for JS viewer
-frames_b64 = []
-for p in range(n_pitch):
-    for y in range(n_yaw):
-        img = Image.fromarray(atlas[p, y])
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=80)
-        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-        frames_b64.append(f"data:image/jpeg;base64,{b64}")
+    if renderer == "Point Splatting (Original)":
+        st.write(f"- Unprojection: {(t2-t1)*1000:.1f} ms")
+        st.write(f"- Atlas Rendering (45 views): {(t3-t2)*1000:.1f} ms")
+    else:
+        st.write(f"- Layer Building: {(t2-t1)*1000:.1f} ms")
+        st.write(f"- MPI Atlas Rendering (45 views): {(t3-t2)*1000:.1f} ms")
 
 js_frames_array = "[" + ",".join([f"'{f}'" for f in frames_b64]) + "]"
 
 # --- TABS ---
-tab_viewer, tab_how, tab_pc, tab_math = st.tabs(["3D Viewer", "How it works", "Point Cloud", "Math (live)"])
+tab_viewer, tab_how, tab_pc, tab_layers, tab_math = st.tabs(["3D Viewer", "How it works", "Point Cloud", "Layers", "Math (live)"])
 
 with tab_viewer:
-    # 3D Viewer Interactive HTML
+    # 3D Viewer Interactive HTML (Cross-blending with canvas)
     html_code = f"""
     <div class="viewer-container" id="viewer" style="cursor: crosshair;">
-        <img id="view-img" src="{frames_b64[(n_pitch//2)*n_yaw + (n_yaw//2)]}" draggable="false" />
+        <canvas id="view-canvas"></canvas>
     </div>
     <script>
-    const frames = {js_frames_array};
+    const framesData = {js_frames_array};
     const nYaw = {n_yaw};
     const nPitch = {n_pitch};
-    const img = document.getElementById('view-img');
+    const canvas = document.getElementById('view-canvas');
+    const ctx = canvas.getContext('2d');
     const container = document.getElementById('viewer');
     
     let isIdle = false;
     let idleTimer = null;
     let wiggleT = 0;
     
-    function setFrame(p, y) {{
-        p = Math.max(0, Math.min(nPitch - 1, p));
-        y = Math.max(0, Math.min(nYaw - 1, y));
-        img.src = frames[p * nYaw + y];
+    // Preload images
+    let images = [];
+    let loadedCount = 0;
+    
+    for (let i = 0; i < framesData.length; i++) {{
+        let img = new Image();
+        img.onload = function() {{
+            loadedCount++;
+            if(loadedCount === 1) {{
+                // Initialize canvas size on first load
+                canvas.width = img.width;
+                canvas.height = img.height;
+                setFrameFloat((nPitch-1)/2, (nYaw-1)/2);
+            }}
+        }};
+        img.src = framesData[i];
+        images.push(img);
+    }}
+    
+    // Draw blended frame
+    function setFrameFloat(p, y) {{
+        p = Math.max(0, Math.min(nPitch - 1.001, p));
+        y = Math.max(0, Math.min(nYaw - 1.001, y));
+        
+        let p0 = Math.floor(p), p1 = p0 + 1;
+        let y0 = Math.floor(y), y1 = y0 + 1;
+        
+        let wp1 = p - p0, wp0 = 1 - wp1;
+        let wy1 = y - y0, wy0 = 1 - wy1;
+        
+        let w00 = wp0 * wy0;
+        let w01 = wp0 * wy1;
+        let w10 = wp1 * wy0;
+        let w11 = wp1 * wy1;
+        
+        if (loadedCount < images.length) return;
+        
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.globalCompositeOperation = 'lighter';
+        
+        // Blend 4 nearest neighbors
+        ctx.globalAlpha = w00;
+        ctx.drawImage(images[p0 * nYaw + y0], 0, 0);
+        
+        ctx.globalAlpha = w01;
+        ctx.drawImage(images[p0 * nYaw + y1], 0, 0);
+        
+        ctx.globalAlpha = w10;
+        ctx.drawImage(images[p1 * nYaw + y0], 0, 0);
+        
+        ctx.globalAlpha = w11;
+        ctx.drawImage(images[p1 * nYaw + y1], 0, 0);
+        
+        ctx.globalAlpha = 1.0;
+        ctx.globalCompositeOperation = 'source-over';
     }}
     
     function resetIdle() {{
@@ -230,9 +289,9 @@ with tab_viewer:
         const rect = container.getBoundingClientRect();
         const nx = (e.clientX - rect.left) / rect.width;
         const ny = (e.clientY - rect.top) / rect.height;
-        const yIdx = Math.floor(nx * nYaw);
-        const pIdx = Math.floor(ny * nPitch);
-        setFrame(pIdx, yIdx);
+        const yIdx = nx * (nYaw - 1);
+        const pIdx = ny * (nPitch - 1);
+        setFrameFloat(pIdx, yIdx);
     }});
     
     container.addEventListener('touchmove', (e) => {{
@@ -242,18 +301,18 @@ with tab_viewer:
         const touch = e.touches[0];
         const nx = (touch.clientX - rect.left) / rect.width;
         const ny = (touch.clientY - rect.top) / rect.height;
-        const yIdx = Math.floor(nx * nYaw);
-        const pIdx = Math.floor(ny * nPitch);
-        setFrame(pIdx, yIdx);
+        const yIdx = nx * (nYaw - 1);
+        const pIdx = ny * (nPitch - 1);
+        setFrameFloat(pIdx, yIdx);
     }}, {{passive: false}});
     
     // Auto wiggle
     setInterval(() => {{
         if (isIdle) {{
             wiggleT += 0.05;
-            const yIdx = Math.floor((nYaw-1)/2 + Math.sin(wiggleT) * (nYaw-1)/2);
-            const pIdx = Math.floor((nPitch-1)/2 + Math.cos(wiggleT*0.7) * (nPitch-1)/2);
-            setFrame(pIdx, yIdx);
+            const yIdx = (nYaw-1)/2 + Math.sin(wiggleT) * (nYaw-1)/2;
+            const pIdx = (nPitch-1)/2 + Math.cos(wiggleT*0.7) * (nPitch-1)/2;
+            setFrameFloat(pIdx, yIdx);
         }}
     }}, 50);
     
@@ -262,35 +321,45 @@ with tab_viewer:
     """
     st.components.v1.html(html_code, height=600)
     
-    # Download GIF
-    def create_gif():
+    # Download GIF / Dolly Zoom
+    def create_orbit_gif():
         gif_frames = []
-        # Circular path through atlas
         for t in np.linspace(0, 2*np.pi, 20):
-            p = int((n_pitch-1)/2 + Math.sin(t)*(n_pitch-1)/2) if 'Math' in globals() else int((n_pitch-1)/2 + np.sin(t)*(n_pitch-1)/2)
-            y = int((n_yaw-1)/2 + Math.cos(t)*(n_yaw-1)/2) if 'Math' in globals() else int((n_yaw-1)/2 + np.cos(t)*(n_yaw-1)/2)
-            gif_frames.append(Image.fromarray(atlas[p, y]))
+            p = int((n_pitch-1)/2 + np.sin(t)*(n_pitch-1)/2)
+            y = int((n_yaw-1)/2 + np.cos(t)*(n_yaw-1)/2)
+            if renderer == "Point Splatting (Original)":
+                gif_frames.append(Image.fromarray(atlas[p, y]))
+            else:
+                # Need to grab from frames_b64 and decode
+                b64 = frames_b64[p * n_yaw + y].split(",")[1]
+                gif_frames.append(Image.open(io.BytesIO(base64.b64decode(b64))))
+                
         buf = io.BytesIO()
         gif_frames[0].save(buf, format='GIF', save_all=True, append_images=gif_frames[1:], duration=100, loop=0)
         return buf.getvalue()
         
-    st.download_button("Download orbit GIF", data=create_gif(), file_name="orbit.gif", mime="image/gif")
-    
-    st.markdown("---")
-    st.markdown("### Fallback Controls (High Quality Render)")
-    @st.fragment
-    def fallback_controls():
-        fyaw = st.slider("Yaw", -max_yaw, max_yaw, 0.0, key="fyaw")
-        fpitch = st.slider("Pitch", -max_pitch, max_pitch, 0.0, key="fpitch")
-        if st.button("Render exact view"):
-            R = engine.get_rotation_matrix(np.radians(fpitch), np.radians(fyaw), 0.0)
-            P_new = engine.apply_transform(P, R, Z_pivot=z_pivot)
-            canvas, d = engine.project_to_2d(P_new, colors, edge_tau=edge_tau, edge_mode=edge_mode, s_max=splat_size, z_near=z_near)
-            if fill_holes:
-                canvas, _ = engine.fill_holes_pyramid(canvas, d)
-            st.image(canvas, use_container_width=True)
-    fallback_controls()
+    def create_dolly_zoom_gif():
+        gif_frames = []
+        if renderer == "Layers (MPI)":
+            for dz in np.linspace(1.0, 2.0, 20):
+                K_render = engine.K.copy()
+                K_render[0, 0] *= dz
+                K_render[1, 1] *= dz
+                t = np.array([0, 0, -dz], dtype=np.float32)
+                H_k = layer_homographies(engine.K, np.eye(3), t, z_k, K_render=K_render)
+                frame = render_mpi(layers, H_k)
+                gif_frames.append(Image.fromarray(frame))
+        buf = io.BytesIO()
+        if len(gif_frames) > 0:
+            gif_frames[0].save(buf, format='GIF', save_all=True, append_images=gif_frames[1:], duration=100, loop=0)
+        return buf.getvalue()
 
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button("Download Orbit GIF", data=create_orbit_gif(), file_name="orbit.gif", mime="image/gif")
+    with c2:
+        if renderer == "Layers (MPI)":
+            st.download_button("Download Dolly Zoom GIF", data=create_dolly_zoom_gif(), file_name="dolly.gif", mime="image/gif")
 
 with tab_how:
     c1, c2, c3, c4 = st.columns(4)
@@ -300,30 +369,58 @@ with tab_how:
     with c2:
         d_map = engine.disparity_to_depth(disparity, 0, 1) # normalized for colormap
         st.image(depth_colormap(d_map), caption="2. Depth Map")
-        st.latex(r"X = Z \cdot K^{-1} [u, v, 1]^T")
+        if renderer == "Point Splatting (Original)":
+            st.latex(r"X = Z \cdot K^{-1} [u, v, 1]^T")
+        else:
+            st.latex(r"Z_k = Z_{near} + (1 - c_k)(Z_{far} - Z_{near})")
     with c3:
-        ext_view = render_external_view(P, colors, engine.K, H, W)
-        st.image(ext_view, caption="3. 3D Point Cloud")
-        st.latex(r"P' = (P - c) R^T + c + t")
+        if renderer == "Point Splatting (Original)":
+            P, _ = get_point_cloud(disparity, z_near, z_far, fov, W, H)
+            ext_view = render_external_view(P, img_array.reshape(-1, 3), engine.K, H, W)
+            st.image(ext_view, caption="3. 3D Point Cloud")
+            st.latex(r"P' = (P - c) R^T + c + t")
+        else:
+            if 'layers' in locals():
+                layer_mid = (layers[n_layers//2, ..., :3] * 255).astype(np.uint8)
+                st.image(layer_mid, caption="3. MPI Layer Slice")
+                st.latex(r"w_k(d) = \max(0, 1 - |d - c_k| \cdot L)")
     with c4:
-        st.image(atlas[n_pitch//2, 0], caption="4. New View")
-        st.latex(r"[u', v', w]^T = K P'^T \\ u = u'/w")
-
+        # decode base64
+        b64 = frames_b64[(n_pitch//2) * n_yaw].split(",")[1]
+        new_view = Image.open(io.BytesIO(base64.b64decode(b64)))
+        st.image(new_view, caption="4. New View")
+        if renderer == "Point Splatting (Original)":
+            st.latex(r"[u', v', w]^T = K P'^T \\ u = u'/w")
+        else:
+            st.latex(r"H_k = K (R - \frac{t n^T}{Z_k}) K^{-1}")
 
 with tab_pc:
-    @st.fragment
-    def pc_controls():
-        ext_yaw = st.slider("External Yaw", -90.0, 90.0, 55.0)
-        ext_pitch = st.slider("External Pitch", -90.0, 90.0, 20.0)
-        ext_view = render_external_view(P, colors, engine.K, H, W, yaw=ext_yaw, pitch=ext_pitch)
-        st.image(ext_view, use_container_width=True)
-    pc_controls()
+    if renderer == "Point Splatting (Original)":
+        @st.fragment
+        def pc_controls():
+            ext_yaw = st.slider("External Yaw", -90.0, 90.0, 55.0)
+            ext_pitch = st.slider("External Pitch", -90.0, 90.0, 20.0)
+            ext_view = render_external_view(P, colors, engine.K, H, W, yaw=ext_yaw, pitch=ext_pitch)
+            st.image(ext_view, use_container_width=True)
+        pc_controls()
+    else:
+        st.write("Point cloud viewer is for Point Splatting renderer.")
 
+with tab_layers:
+    if renderer == "Layers (MPI)":
+        st.write("Showing a subset of MPI layers (premultiplied RGB)")
+        cols = st.columns(5)
+        indices = np.linspace(0, n_layers-1, 5, dtype=int)
+        for i, idx in enumerate(indices):
+            with cols[i]:
+                st.image((layers[idx, ..., :3] * 255).astype(np.uint8), caption=f"Layer {idx} (Z={z_k[idx]:.2f})")
+    else:
+        st.write("Layers view is for MPI renderer.")
 
 with tab_math:
     @st.fragment
     def math_controls():
-        st.markdown("Move the sliders to see the matrices update live. A rotation about the camera gives no parallax. A rotation about a pivot inside the scene gives the 3D effect.")
+        st.markdown("Move the sliders to see the matrices update live.")
         myaw = st.slider("Yaw", -45.0, 45.0, 15.0, key="myaw")
         mpitch = st.slider("Pitch", -45.0, 45.0, 5.0, key="mpitch")
         mroll = st.slider("Roll", -45.0, 45.0, 0.0, key="mroll")
@@ -335,13 +432,15 @@ with tab_math:
             st.markdown("**Camera Intrinsic Matrix K**")
             st.dataframe(engine.K)
         with c2:
-            st.markdown("**Composite Rotation Matrix R**")
+            st.markdown("**Rotation Matrix R**")
             st.dataframe(R)
             
-        I = np.eye(3)
-        R_RT = R @ R.T
-        max_diff = np.max(np.abs(R_RT - I))
-        det_R = np.linalg.det(R)
-        
-        st.markdown(f"**Live Checks:** `max|R Rᵀ − I|` = {max_diff:.2e}, `det R` = {det_R:.4f}")
+        if renderer == "Layers (MPI)":
+            st.markdown("**Layer Homography H_k (for nearest layer)**")
+            t = np.array([base_x * (myaw / max_yaw) if max_yaw > 0 else 0,
+                          base_y * (mpitch / max_pitch) if max_pitch > 0 else 0,
+                          0.0], dtype=np.float32)
+            H_k_matrix = layer_homographies(engine.K, R, t, z_k)
+            st.dataframe(H_k_matrix[-1])
+            
     math_controls()
