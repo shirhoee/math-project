@@ -4,6 +4,8 @@ import numpy as np
 from PIL import Image
 import time
 import sys
+import io
+import base64
 import os
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
