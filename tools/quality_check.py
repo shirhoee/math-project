@@ -179,12 +179,72 @@ def main():
                 black_hole_fraction = 0.0
                 parallax_ratio = 1.0
                 print(f"| {name} | {renderer_name:8s} | {sharp_ratio_centre:.3f} | {sharp_ratio_extreme:.3f} (Crop {sharp_ratio_ext_crop:.3f}) | {black_hole_fraction:.3f} | {parallax_ratio:.3f} | {identity_psnr:.2f} |")
-
-                    
+        from mpi_renderer import render_atlas_mpi
+        t_mpi_render_all0 = time.time()
+        mpi_frames = render_atlas_mpi(layers, z_k, engine.K, angles, baseline_x, baseline_y, max_yaw, max_pitch, 0.0, z_pivot)
+        t_mpi_render_all1 = time.time()
+        
+        os.makedirs("docs/results", exist_ok=True)
+        # Gather frames
+        pt_left = atlas_pt[n_pitch//2, 0]
+        pt_right = atlas_pt[n_pitch//2, -1]
+        pt_up = atlas_pt[-1, n_yaw//2]
+        pt_down = atlas_pt[0, n_yaw//2]
+        
+        def decode_b64(s):
+            if isinstance(s, str):
+                return np.array(Image.open(io.BytesIO(base64.b64decode(s.split(",")[1]))).convert('RGB'))
+            return s
+            
+        mpi_left = decode_b64(mpi_frames[n_pitch//2 * n_yaw + 0])
+        mpi_right = decode_b64(mpi_frames[n_pitch//2 * n_yaw + (n_yaw-1)])
+        mpi_up = decode_b64(mpi_frames[-1 * n_yaw + n_yaw//2])
+        mpi_down = decode_b64(mpi_frames[0 * n_yaw + n_yaw//2])
+        
+        def paste_images(img_list, row, col, h, w):
+            canvas = np.zeros((h * row, w * col, 3), dtype=np.uint8)
+            for i, img in enumerate(img_list):
+                if img.shape[:2] != (h, w):
+                    import cv2
+                    img = cv2.resize(img, (w, h))
+                r, c = i // col, i % col
+                canvas[r*h:(r+1)*h, c*w:(c+1)*w] = img
+            return canvas
+            
+        pt_row = [pt_left, pt_center, pt_right, pt_up, pt_down]
+        mpi_row = [mpi_left, decode_b64(mpi_center), mpi_right, mpi_up, mpi_down]
+        
+        # Crops
+        cx, cy = W//2, H//2
+        s = 100
+        pt_crop_c = pt_center[cy-s:cy+s, cx-s:cx+s]
+        pt_crop_e = pt_max_yaw[cy-s:cy+s, cx-s:cx+s]
+        
+        mpi_crop_c = mpi_row[1][cy-s:cy+s, cx-s:cx+s]
+        mpi_crop_e = decode_b64(mpi_max_yaw)[cy-s:cy+s, cx-s:cx+s]
+        
+        # 200% scaling
+        pt_crop_c = np.repeat(np.repeat(pt_crop_c, 2, axis=0), 2, axis=1)
+        pt_crop_e = np.repeat(np.repeat(pt_crop_e, 2, axis=0), 2, axis=1)
+        mpi_crop_c = np.repeat(np.repeat(mpi_crop_c, 2, axis=0), 2, axis=1)
+        mpi_crop_e = np.repeat(np.repeat(mpi_crop_e, 2, axis=0), 2, axis=1)
+        
+        # Pad crops to match H, W (just stick them in the center of a black frame)
+        def pad_crop(crop, h, w):
+            canvas = np.zeros((h, w, 3), dtype=np.uint8)
+            ch, cw = crop.shape[:2]
+            canvas[(h-ch)//2:(h+ch)//2, (w-cw)//2:(w+cw)//2] = crop
+            return canvas
+            
+        pt_crop_row = [pad_crop(pt_crop_c, H, W), pad_crop(pt_crop_e, H, W), pad_crop(pt_crop_c, H, W), pad_crop(pt_crop_c, H, W), pad_crop(pt_crop_c, H, W)]
+        mpi_crop_row = [pad_crop(mpi_crop_c, H, W), pad_crop(mpi_crop_e, H, W), pad_crop(mpi_crop_c, H, W), pad_crop(mpi_crop_c, H, W), pad_crop(mpi_crop_c, H, W)]
+        
+        contact = paste_images(pt_row + pt_crop_row + mpi_row + mpi_crop_row, 4, 5, H, W)
+        Image.fromarray(contact).save(f"docs/results/contact_{name}.png")                    
         # Timing
         # We need to simulate atlas rendering + encoding
         # The prompt says "measure the real app path in seconds, split into: depth, layer building, atlas rendering, encoding, page assembly"
-        print(f"Timing for {name}: Depth={t_depth:.2f}s, Build Points={t_pt1-t_pt0:.2f}s, Build Layers={t_build_mpi:.2f}s, MPI Render (2 views)={t_mpi_atlas1-t_mpi_atlas0:.2f}s")
+        print(f"Timing for {name}: Depth={t_depth:.2f}s, Build Points={t_pt1-t_pt0:.2f}s, Build Layers={t_build_mpi:.2f}s, MPI Render (123 views)={t_mpi_render_all1-t_mpi_render_all0:.2f}s")
         
     print()
     if any_failed:
