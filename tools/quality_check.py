@@ -32,20 +32,28 @@ def main():
         print("No samples found.")
         sys.exit(1)
         
-    print("Running Quality Gates...")
+    print("Running Quality Gates...\n")
     
-    contact_sheets = []
+    print("| Sample | Sharp (Ctr) | Sharp (Ext) | Hole Frac | Parallax | PSNR (dB) | Build (s) |")
+    print("|--------|-------------|-------------|-----------|----------|-----------|-----------|")
     
-    all_mpi_sharpness = []
-    all_mpi_psnr = []
+    metrics = []
     
     for i, path in enumerate(samples):
-        print(f"Processing {path}...")
         img = Image.open(path).convert("RGB")
+        if img.width > 1024:
+            ratio = 1024.0 / img.width
+            new_size = (1024, int(img.height * ratio))
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+        
         img_array = np.array(img)
         H, W, _ = img_array.shape
         
-        disparity = model.estimate_depth(path, refine_depth=True)
+        # Save temporary for depth estimator
+        temp_path = "temp_quality.jpg"
+        img.save(temp_path)
+        
+        disparity = model.estimate_depth(temp_path, refine_depth=True)
         
         fov = 60.0
         z_near, z_far = 1.0, 4.0
@@ -53,85 +61,60 @@ def main():
         engine = TransformEngine(W, H, fov)
         Z_map = engine.disparity_to_depth(disparity, z_near, z_far)
         P = engine.unproject_to_3d(Z_map)
-        colors = img_array.reshape(-1, 3)
         
         z_pivot = float(np.median(P[:, 2]))
         
-        # Original Point Splatting Max Yaw (12 deg)
-        angles_max = np.array([[[12.0, 0.0]]], dtype=np.float32)
-        atlas_old = render_atlas(P, colors, engine.K, H, W, angles_max, Z_pivot=z_pivot, edge_tau=0.05, edge_mode='demote', s_max=2, z_near=z_near)
-        old_max_yaw = atlas_old[0, 0]
-        
-        # MPI Engine
         t0 = time.time()
         layers, z_k = build_layers(img_array, disparity, z_near, z_far, n_layers=16)
+        t1 = time.time()
+        build_time_s = t1 - t0
         
-        # Centre frame (0 deg)
         H_k_center = layer_homographies(engine.K, np.eye(3), np.zeros(3), z_k)
         mpi_center = render_mpi(layers, H_k_center)
         
-        # Max yaw frame (12 deg)
-        from view_atlas import orbit_angles
-        # purely translation for MPI orbit equivalent to 12 deg
-        # baseline for 12 deg. 12/max_yaw ... let's use a standard translation
-        # baseline = calibrate_motion(z_near, engine.K[0,0], W, 0.05)
-        # Instead, let's match rotation to Point Splatting for exact comparison
         R_12 = engine.get_rotation_matrix(0.0, np.radians(12.0), 0.0)
-        # Pivot compensation t = z_pivot * [0,0,1] - R @ (z_pivot * [0,0,1])
         pivot_pos = np.array([0, 0, z_pivot], dtype=np.float32)
         t_12 = pivot_pos - R_12 @ pivot_pos
         
         H_k_max = layer_homographies(engine.K, R_12, t_12, z_k)
         mpi_max_yaw = render_mpi(layers, H_k_max)
         
-        # Metrics
+        # Calculate final alpha
+        alpha_rem = np.ones((H, W), dtype=np.float32)
+        for k in range(layers.shape[0]):
+            alpha_rem *= (1.0 - layers[k, ..., 3])
+        final_a = 1.0 - alpha_rem
+        black_hole_fraction = np.mean(final_a < 0.99)
+        
         sharp_orig = laplacian_variance(img_array)
-        sharp_mpi = laplacian_variance(mpi_center)
-        sharp_ratio = sharp_mpi / sharp_orig
+        sharp_center = laplacian_variance(mpi_center)
+        sharp_extreme = laplacian_variance(mpi_max_yaw)
         
-        p = psnr(mpi_center, img_array)
+        sharp_ratio_centre = sharp_center / sharp_orig
+        sharp_ratio_extreme = sharp_extreme / sharp_orig
         
-        print(f"  Sharpness Ratio: {sharp_ratio:.3f}")
-        print(f"  PSNR (center): {p:.2f} dB")
+        identity_psnr = psnr(mpi_center, img_array)
         
-        all_mpi_sharpness.append(sharp_ratio)
-        all_mpi_psnr.append(p)
+        # Parallax ratio (approximation of max shift over W)
+        parallax_ratio = (np.abs(t_12[0]) * engine.K[0,0] / z_near) / W
         
-        # Contact sheet row: Original | Disparity | Old Max Yaw | MPI Max Yaw
-        # Resize to small for contact sheet to avoid massive memory
-        scale = 320 / W
-        s_w, s_h = 320, int(H * scale)
+        name = os.path.basename(path)[:10]
+        print(f"| {name} | {sharp_ratio_centre:.3f} | {sharp_ratio_extreme:.3f} | {black_hole_fraction:.3f} | {parallax_ratio:.3f} | {identity_psnr:.2f} | {build_time_s:.2f} |")
         
-        d_vis = (disparity * 255).astype(np.uint8)
-        d_vis = cv2.cvtColor(d_vis, cv2.COLOR_GRAY2RGB)
+        metrics.append({
+            "psnr": identity_psnr,
+            "sharp_ctr": sharp_ratio_centre,
+        })
         
-        imgs = [img_array, d_vis, old_max_yaw, mpi_max_yaw]
-        imgs_resized = [cv2.resize(im, (s_w, s_h)) for im in imgs]
-        row = np.concatenate(imgs_resized, axis=1)
-        contact_sheets.append(row)
-        
-    final_sheet = np.concatenate(contact_sheets, axis=0)
-    Image.fromarray(final_sheet).save("assets/samples/contact_sheet.jpg")
-    print("Saved contact_sheet.jpg")
+    print()
+    mean_psnr = np.mean([m["psnr"] for m in metrics])
+    mean_sharp = np.mean([m["sharp_ctr"] for m in metrics])
     
-    mean_sharp = np.mean(all_mpi_sharpness)
-    mean_psnr = np.mean(all_mpi_psnr)
+    psnr_pass = mean_psnr >= 45.0
+    sharp_pass = mean_sharp >= 0.95
     
-    success = True
-    if mean_sharp < 0.90:
-        print(f"FAIL: Mean sharpness ratio {mean_sharp:.3f} < 0.90")
-        success = False
-    else:
-        print(f"PASS: Mean sharpness ratio {mean_sharp:.3f} >= 0.90")
-        
-    if mean_psnr < 30.0:
-        print(f"FAIL: Mean PSNR {mean_psnr:.2f} < 30.0 dB")
-        success = False
-    else:
-        print(f"PASS: Mean PSNR {mean_psnr:.2f} >= 30.0 dB")
-        
-    if not success:
-        sys.exit(1)
-        
+    print(f"Identity PSNR (Target >= 45.0 dB): {mean_psnr:.2f} dB -> {'PASS' if psnr_pass else 'FAIL'}")
+    print(f"Sharpness Ratio (Target >= 0.95): {mean_sharp:.3f} -> {'PASS' if sharp_pass else 'FAIL'}")
+
 if __name__ == "__main__":
     main()

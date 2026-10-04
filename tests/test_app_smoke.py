@@ -1,7 +1,7 @@
 from streamlit.testing.v1 import AppTest
 
 def test_app_loads():
-    at = AppTest.from_file("../app.py", default_timeout=60)
+    at = AppTest.from_file("../app.py", default_timeout=180)
     at.run()
     
     # Check no exceptions

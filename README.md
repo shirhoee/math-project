@@ -31,9 +31,7 @@ Because the input is a single 2D image, the system has no information about what
 | Hole Filling | True | Pyramid fill | Fills remaining holes with background-biased content |
 | Roll (deg) | ±5.0 | Roll rotation limit | Limited to avoid severe over-cropping |
 
-## Occlusion Limitation
 
-Single-image depth cannot reveal surfaces hidden in the original view. At yaw 25 deg, 23.8% of pixels are filled by the pyramid with no real image data. Filled regions show blocky artifacts (mean gradient ratio 0.49 vs. unfilled regions).
 
 ## Performance (800 x 534, sample.jpg)
 

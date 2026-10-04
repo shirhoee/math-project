@@ -39,11 +39,22 @@ def get_depth_model(size="Small"):
 @st.cache_data(show_spinner="Estimating depth...")
 def process_image(img_path, model_size="Small", refine=True):
     image = Image.open(img_path).convert("RGB")
+    
+    # Resize to max 1024 px wide to stay under 15 MB payload
+    if image.width > 1024:
+        ratio = 1024.0 / image.width
+        new_size = (1024, int(image.height * ratio))
+        image = image.resize(new_size, Image.Resampling.LANCZOS)
+        
     img_array = np.array(image)
     H, W, _ = img_array.shape
     
+    # Save temporary resized image for depth model
+    temp_path = "temp_resized.jpg"
+    image.save(temp_path)
+    
     model = get_depth_model(model_size)
-    disparity = model.estimate_depth(img_path, refine_depth=refine)
+    disparity = model.estimate_depth(temp_path, refine_depth=refine)
     
     return disparity, img_array, H, W
 
