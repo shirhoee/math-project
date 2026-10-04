@@ -219,3 +219,89 @@ def render_mpi(layers, H_k):
         out_rgb = src_rgb + (1.0 - src_a) * out_rgb
         
     return np.clip(out_rgb * 255.0, 0, 255).astype(np.uint8)
+
+import concurrent.futures
+import base64
+from io import BytesIO
+from PIL import Image
+
+def parallax_px(z, f, baseline):
+    """
+    Computes horizontal parallax in pixels.
+    z: depth
+    f: focal length (fx)
+    baseline: camera shift t_x
+    Returns: shift in pixels
+    """
+    return baseline * f / z
+
+def calibrate_motion(z_near, f, W, target_shift_ratio=0.1):
+    """
+    Computes camera baseline needed to move nearest object by target_shift_ratio * W pixels.
+    """
+    target_shift_px = target_shift_ratio * W
+    baseline = (target_shift_px * z_near) / f
+    return baseline
+
+def _render_single_frame(layers, H_k, quality=80):
+    frame = render_mpi(layers, H_k)
+    img = Image.fromarray(frame)
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    return f"data:image/jpeg;base64,{b64}"
+
+def render_atlas_mpi(layers, z_k, K, angles, baseline_x_max, baseline_y_max, max_yaw=12.0, max_pitch=8.0):
+    """
+    Renders an atlas of frames using the MPI layered renderer in parallel.
+    angles: (n_pitch, n_yaw, 2)
+    Returns: 
+        frames: list of base64 strings (flat)
+    """
+    n_pitch, n_yaw, _ = angles.shape
+    
+    # Pre-calculate R and t for each view
+    from math_engine import TransformEngine
+    engine = TransformEngine(layers.shape[2], layers.shape[1])
+    
+    # We parameterize translation based on angles relative to max_angles.
+    # Actually, a simple orbit implies translation t and rotation R.
+    # The homography formula uses camera rotation and translation.
+    # If the camera moves linearly in X and Y, t_x and t_y vary.
+    # angles shape is (n_pitch, n_yaw, 2).
+    # t_x = baseline_x_max * (yaw / max_yaw)
+    # t_y = baseline_y_max * (pitch / max_pitch)
+    
+    # Wait, the prompt says "calibrate_motion" computes the baseline.
+    # The orbit in Stage 1 was just rotation around a pivot.
+    # In MPI, we do pure camera translation (and maybe rotation if we want to fixate).
+    # Standard MPI dolly/orbit is mostly translation, or translation + rotation to fixate.
+    # If we translate and rotate to fixate at Z_pivot, then:
+    # We can just use translation if we don't rotate, or both.
+    
+    tasks = []
+    
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        for p in range(n_pitch):
+            for y in range(n_yaw):
+                yaw_deg = angles[p, y, 0]
+                pitch_deg = angles[p, y, 1]
+                
+                # linear translation proportional to angles
+                t_x = baseline_x_max * (yaw_deg / max_yaw) if max_yaw > 0 else 0
+                t_y = baseline_y_max * (pitch_deg / max_pitch) if max_pitch > 0 else 0
+                
+                t = np.array([t_x, t_y, 0.0], dtype=np.float32)
+                
+                # Pure translation for now, or small rotation to fixate
+                # If we use rotation:
+                R = engine.get_rotation_matrix(np.radians(pitch_deg), np.radians(yaw_deg), 0.0)
+                # But actually homography formula requires camera transform. 
+                # Let's just pass R and t to layer_homographies.
+                
+                H_k = layer_homographies(K, R, t, z_k)
+                tasks.append(executor.submit(_render_single_frame, layers, H_k))
+                
+        frames = [future.result() for future in tasks]
+        
+    return frames
