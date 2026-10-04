@@ -47,3 +47,17 @@ Identity difference with default settings: 0.000%.
 ## Results Gallery
 
 Side-by-side images (original | no-fill | filled) are in `docs/results/`.
+
+## V2 Layered (MPI) Renderer
+A new Multi-Plane Image (MPI) renderer achieves flawless image reconstruction (PSNR > 50 dB) and perfect continuity by building layered depth representations and compositing them via homographies.
+This renderer runs completely mathematically using pure NumPy without point splatting. 
+You can view a contact sheet in `assets/samples/contact_sheet.jpg`.
+
+## Photo Credits
+Sample photos were sourced from Wikimedia Commons:
+- Living room (4102748829).jpg (CC BY-SA)
+- Wooden and bamboo facades of dwellings with sudare in a cobbled street of Gion... (CC BY-SA)
+- Cheops Mountain seen the Sir Donald Trail.jpg (Public Domain)
+- Gray espresso cup with amaretto 1.jpg (CC BY-SA)
+- J. Lee Vause Park dog park.jpg (CC BY-SA)
+See `assets/samples/ATTRIBUTION.md` for full attribution URLs and authors.

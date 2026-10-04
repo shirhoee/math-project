@@ -31,3 +31,17 @@ Rotation matrices are orthogonal: R^T = R^-1.
 Inscribed rectangle of projected corners, scaling fx, fy, cx, cy.
 Implemented in: `app.py: auto_crop logic`
 Tested in: `tools/run_autocrop_check.py`
+
+## Inverse 3x3 Matrix (Adjugate Formula)
+The inverse of a 3x3 matrix $M$ can be computed without external libraries using the adjugate matrix:
+$M^{-1} = \frac{1}{\det(M)} \text{adj}(M)$
+where $\text{adj}(M)$ is the transpose of the cofactor matrix.
+Implemented in: `mpi_renderer.py: inv3x3`
+Tested in: `tests/test_mpi.py`
+
+## Plane-Induced Homography
+A 3D plane in the camera frame with normal $n$ at distance $d$ (equation $n^T X = d$) induces a 2D homography $H$ mapping pixels from the first view to the second view:
+$H = K (R - \frac{t n^T}{d}) K^{-1}$
+For an MPI layer $k$ perpendicular to the optical axis, $n = [0, 0, 1]^T$ and $d = Z_k$.
+Implemented in: `mpi_renderer.py: layer_homographies`
+Tested in: `tests/test_mpi.py`
