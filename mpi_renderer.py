@@ -39,8 +39,22 @@ def build_layers(rgb, disparity, z_near, z_far, n_layers=16, bleed_px=None):
         
     sum_w = np.sum(layers[..., 3], axis=0, keepdims=True)
     sum_w = np.maximum(sum_w, 1e-6)
-    layers[..., :3] /= sum_w[..., None]
-    layers[..., 3:4] /= sum_w[..., None]
+    layers[..., 3] /= sum_w[0]
+
+    # Calculate true alpha for 'over' compositing from back to front
+    cum_w = np.zeros((H, W), dtype=np.float32)
+    for k in range(L):
+        cum_w += layers[k, ..., 3]
+        safe_cum = np.maximum(cum_w, 1e-6)
+        
+        # true alpha for over compositing
+        alpha_k = layers[k, ..., 3] / safe_cum
+        # but only where cum_w > 0
+        alpha_k[cum_w < 1e-6] = 0.0
+        
+        # update layer with true alpha and premultiplied rgb
+        layers[k, ..., :3] = rgb * alpha_k[..., None]
+        layers[k, ..., 3] = alpha_k
         
     # Hidden region extension
     # Fills hidden pixels from background-biased pyramid fill using only pixels of this and farther layers.
