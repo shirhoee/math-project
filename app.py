@@ -56,24 +56,48 @@ def get_point_cloud(disparity, z_near, z_far, fov_deg, W, H):
     P = engine.unproject_to_3d(Z_map)
     return P, Z_map
 
-@st.cache_data(show_spinner="Rendering 45 views...")
+@st.cache_data(show_spinner="Rendering views...")
 def build_atlas(P, colors, K, H, W, n_yaw, n_pitch, max_yaw, max_pitch, z_pivot, edge_tau, edge_mode, s_max, z_near):
-    angles = orbit_angles(n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch)
-    
     # Downscale for preview atlas
     scale = min(1.0, 480.0 / W)
     W_s, H_s = int(W * scale), int(H * scale)
     
-    # K matrix scaling
     K_s = K.copy()
     K_s[0, 0] *= scale; K_s[1, 1] *= scale
     K_s[0, 2] *= scale; K_s[1, 2] *= scale
+    
+    engine_render = TransformEngine(W_s, H_s, 60)
+    engine_render.fx = K_s[0, 0]
+    engine_render.fy = K_s[1, 1]
+    engine_render.cx = K_s[0, 2]
+    engine_render.cy = K_s[1, 2]
+    
+    # 1. Per-image safety: check extreme frames before full render
+    extreme_angles = np.array([[max_yaw, max_pitch], [-max_yaw, -max_pitch], [max_yaw, -max_pitch], [-max_yaw, max_pitch]])
+    max_hole_frac = 0.0
+    for pt in extreme_angles:
+        y_r = np.radians(pt[0])
+        p_r = np.radians(pt[1])
+        R = engine_render.get_rotation_matrix(p_r, y_r, 0.0)
+        P_new = engine_render.apply_transform(P, R, Z_pivot=z_pivot)
+        _, depth = engine_render.project_to_2d(P_new, colors, edge_tau=edge_tau, edge_mode=edge_mode, s_max=s_max, z_near=z_near)
+        frac = np.sum(np.isinf(depth)) / depth.size
+        max_hole_frac = max(max_hole_frac, float(frac))
+        
+    shrink_factor = 1.0
+    if max_hole_frac > 0.08:
+        # shrink factor proportional to exceeding
+        shrink_factor = 0.08 / max_hole_frac
+        max_yaw *= shrink_factor
+        max_pitch *= shrink_factor
+
+    angles = orbit_angles(n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch)
     
     atlas = render_atlas(
         P, colors, K_s, H_s, W_s, angles,
         Z_pivot=z_pivot, edge_tau=edge_tau, edge_mode=edge_mode, s_max=s_max, z_near=z_near
     )
-    return atlas, angles, W_s, H_s
+    return atlas, angles, W_s, H_s, max_hole_frac, shrink_factor
 
 # Main UI
 st.title("Interactive 3D View Synthesis")
@@ -142,7 +166,7 @@ edge_tau = 0.05
 n_yaw, n_pitch = 9, 5
 max_yaw, max_pitch = 12.0, 8.0
 
-atlas, angles, W_s, H_s = build_atlas(
+atlas, angles, W_s, H_s, max_hole_frac, shrink_factor = build_atlas(
     P, colors, engine.K, H, W, n_yaw, n_pitch, max_yaw, max_pitch,
     z_pivot, edge_tau, edge_mode, splat_size, z_near
 )
@@ -153,6 +177,9 @@ with diag_placeholder.container():
     st.write(f"- Depth Estimation: {(t1-t0)*1000:.1f} ms")
     st.write(f"- Unprojection: {(t2-t1)*1000:.1f} ms")
     st.write(f"- Atlas Rendering (45 views): {(t3-t2)*1000:.1f} ms")
+    st.write(f"- Max hole fraction before fill: {max_hole_frac*100:.2f}%")
+    if shrink_factor < 1.0:
+        st.write(f"- **Safety triggered:** Angle range shrunk by factor {shrink_factor:.2f}")
 
 # Generate Base64 frames for JS viewer
 frames_b64 = []
