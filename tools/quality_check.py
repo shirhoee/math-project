@@ -105,14 +105,28 @@ def main():
         # Evaluate Gates
         sharp_orig = laplacian_variance(img_array)
         
+        shift_x = int(np.ceil((np.abs(baseline_x) * engine.K[0,0] / z_near)))
+        shift_y = int(np.ceil((np.abs(baseline_y) * engine.K[1,1] / z_near)))
+        
+        def crop_center(img, sx, sy):
+            if sx == 0 and sy == 0: return img
+            sy = max(1, sy)
+            sx = max(1, sx)
+            return img[sy:-sy, sx:-sx]
+            
+        sharp_orig_crop = laplacian_variance(crop_center(img_array, shift_x, shift_y))
+        
         name = os.path.basename(path)[:10]
         
         for renderer_name, center_img, ext_img in [("Points", pt_center, pt_max_yaw), ("Layers", mpi_center, mpi_max_yaw)]:
             sharp_center = laplacian_variance(center_img)
             sharp_extreme = laplacian_variance(ext_img)
+            sharp_ext_crop = laplacian_variance(crop_center(ext_img, shift_x, shift_y))
             
             sharp_ratio_centre = sharp_center / sharp_orig
             sharp_ratio_extreme = sharp_extreme / sharp_orig
+            sharp_ratio_ext_crop = sharp_ext_crop / sharp_orig_crop
+            
             identity_psnr = psnr(center_img, img_array)
             
             if renderer_name == "Layers":
@@ -121,23 +135,30 @@ def main():
                     alpha_rem *= (1.0 - layers[k, ..., 3])
                 final_a = 1.0 - alpha_rem
                 black_hole_fraction = np.mean(final_a < 0.99)
-                parallax_ratio = (np.abs(baseline_x) * engine.K[0,0] / z_near) / W / 0.05 # Target was 0.05, let's just see what it actually shifted
-                # Wait, the quality tool parallax check is:
-                # shift = (abs(t[0]) * fx / z_near) / W
-                parallax = (np.abs(baseline_x) * engine.K[0,0] / z_near) / W
-                target_parallax = 0.05
-                parallax_ratio = parallax / target_parallax
-                # The prompt asks for 0.9 to 1.1 parallax ratio compared to target. But the target shift is now whatever is calibrated.
-                # In Stage C it mentions retuning presets: Subtle 0.04, Normal 0.07, Dramatic 0.11. Currently let's say target is 0.05.
+                parallax_ratio = (np.abs(baseline_x) * engine.K[0,0] / z_near) / W / 0.05
+                
+                # With sharpening
+                from mpi_renderer import unsharp_mask
+                sharp_center_img = unsharp_mask(center_img, 0.35)
+                sharp_ext_img = unsharp_mask(ext_img, 0.35)
+                
+                sharp_c_sharp = laplacian_variance(sharp_center_img)
+                sharp_e_sharp = laplacian_variance(sharp_ext_img)
+                sharp_ec_sharp = laplacian_variance(crop_center(sharp_ext_img, shift_x, shift_y))
+                
+                sharp_ratio_centre_s = sharp_c_sharp / sharp_orig
+                sharp_ratio_extreme_s = sharp_e_sharp / sharp_orig
+                sharp_ratio_ext_crop_s = sharp_ec_sharp / sharp_orig_crop
+                
+                print(f"| {name} | {renderer_name:8s} | {sharp_ratio_centre:.3f} (S {sharp_ratio_centre_s:.3f}) | {sharp_ratio_extreme:.3f} (Crop {sharp_ratio_ext_crop:.3f}, S {sharp_ratio_ext_crop_s:.3f}) | {black_hole_fraction:.3f} | {parallax_ratio:.3f} | {identity_psnr:.2f} |")
+                
+                if sharp_ratio_centre < 0.99 or sharp_ratio_ext_crop < 0.80 or black_hole_fraction > 0.01 or identity_psnr < 45.0 or parallax_ratio < 0.9 or parallax_ratio > 1.1:
+                    any_failed = True
             else:
                 black_hole_fraction = 0.0
                 parallax_ratio = 1.0
-                
-            print(f"| {name} | {renderer_name:8s} | {sharp_ratio_centre:.3f} | {sharp_ratio_extreme:.3f} | {black_hole_fraction:.3f} | {parallax_ratio:.3f} | {identity_psnr:.2f} |")
-            
-            if renderer_name == "Layers":
-                if sharp_ratio_centre < 0.95 or sharp_ratio_extreme < 0.80 or black_hole_fraction > 0.01 or identity_psnr < 45.0 or parallax_ratio < 0.9 or parallax_ratio > 1.1:
-                    any_failed = True
+                print(f"| {name} | {renderer_name:8s} | {sharp_ratio_centre:.3f} | {sharp_ratio_extreme:.3f} (Crop {sharp_ratio_ext_crop:.3f}) | {black_hole_fraction:.3f} | {parallax_ratio:.3f} | {identity_psnr:.2f} |")
+
                     
         # Timing
         # We need to simulate atlas rendering + encoding

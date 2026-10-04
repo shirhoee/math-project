@@ -102,16 +102,13 @@ def build_atlas_points(P, colors, K, H, W, n_yaw, n_pitch, max_yaw, max_pitch, z
     return frames_b64, atlas, angles
 
 @st.cache_data(show_spinner="Rendering views (MPI)...")
-def build_atlas_layered(layers, z_k, K, W, H, n_yaw, n_pitch, max_yaw, max_pitch, z_near):
+def build_atlas_layered(layers, z_k, K, W, H, n_yaw, n_pitch, max_yaw, max_pitch, z_near, sharpen_amount=0.0):
     angles = orbit_angles(n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch)
     
-    # baseline so that max_yaw produces a shift of 10% of width
-    # actually, calibration gives baseline for target_shift_ratio
-    # Let's say max_yaw corresponds to 5% shift
     baseline_x = calibrate_motion(z_near, K[0, 0], W, 0.05)
     baseline_y = calibrate_motion(z_near, K[1, 1], H, 0.05)
     
-    frames_b64 = render_atlas_mpi(layers, z_k, K, angles, baseline_x, baseline_y, max_yaw, max_pitch)
+    frames_b64 = render_atlas_mpi(layers, z_k, K, angles, baseline_x, baseline_y, max_yaw, max_pitch, sharpen_amount)
     return frames_b64, angles, baseline_x, baseline_y
 
 # --- STATE ---
@@ -161,6 +158,7 @@ with st.expander("Settings", expanded=False):
             fill_holes = st.checkbox("Hole Filling", value=True)
         else:
             n_layers = st.slider("MPI Layers", 4, 32, 16)
+            sharpen_amount = st.slider("Sharpen Amount", 0.0, 1.0, 0.35)
     
     st.markdown("### Diagnostics")
     diag_placeholder = st.empty()
@@ -193,7 +191,7 @@ else:
     t2 = time.time()
     
     frames_b64, angles, base_x, base_y = build_atlas_layered(
-        layers, z_k, engine.K, W, H, n_yaw, n_pitch, max_yaw, max_pitch, z_near
+        layers, z_k, engine.K, W, H, n_yaw, n_pitch, max_yaw, max_pitch, z_near, sharpen_amount
     )
     t3 = time.time()
 
