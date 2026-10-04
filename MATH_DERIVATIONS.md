@@ -40,8 +40,16 @@ Implemented in: `mpi_renderer.py: inv3x3`
 Tested in: `tests/test_mpi.py`
 
 ## Plane-Induced Homography
-A 3D plane in the camera frame with normal $n$ at distance $d$ (equation $n^T X = d$) induces a 2D homography $H$ mapping pixels from the first view to the second view:
-$H = K (R - \frac{t n^T}{d}) K^{-1}$
-For an MPI layer $k$ perpendicular to the optical axis, $n = [0, 0, 1]^T$ and $d = Z_k$.
+The prompt's convention for the camera transform is $P' = R P + b$.
+If the camera orbits around a center $c$ with an extra translation $t_{extra}$, then $b = c - R c + t_{extra}$.
+The homography induced by a plane with normal $e_z = [0, 0, 1]^T$ at depth $d = Z_k$ under this transform is:
+$H_d = K ( R + \frac{b e_z^T}{d} ) K^{-1}$
+
+The report quotes $H = K ( R - \frac{t n^T}{d} ) K^{-1}$.
+In our code, we define $n = -e_z = [0, 0, -1]^T$ and $t = b = c - R c + t_{extra}$.
+Substituting these into the report's formula gives:
+$H = K ( R - \frac{b (-e_z^T)}{d} ) K^{-1} = K ( R + \frac{b e_z^T}{d} ) K^{-1} = H_d$
+which exactly matches the prompt's convention in one line.
+
 Implemented in: `mpi_renderer.py: layer_homographies`
-Tested in: `tests/test_mpi.py`
+Tested in: `tests/test_mpi_stage4.py` (and against the point-based engine).

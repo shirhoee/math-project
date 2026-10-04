@@ -361,7 +361,7 @@ with tab_viewer:
     st.components.v1.html(html_code, height=600)
     
     # Download GIF / Dolly Zoom
-    def create_orbit_gif():
+    def create_orbit_gif(ext="GIF"):
         gif_frames = []
         for t in np.linspace(0, 2*np.pi, 20):
             p = int((n_pitch-1)/2 + np.sin(t)*(n_pitch-1)/2)
@@ -374,10 +374,10 @@ with tab_viewer:
                 gif_frames.append(Image.open(io.BytesIO(base64.b64decode(b64))))
                 
         buf = io.BytesIO()
-        gif_frames[0].save(buf, format='GIF', save_all=True, append_images=gif_frames[1:], duration=100, loop=0)
+        gif_frames[0].save(buf, format=ext, save_all=True, append_images=gif_frames[1:], duration=100, loop=0)
         return buf.getvalue()
         
-    def create_dolly_zoom_gif():
+    def create_dolly_zoom_gif(ext="GIF"):
         gif_frames = []
         if renderer == "Layers (MPI)":
             for dz in np.linspace(1.0, 2.0, 20):
@@ -390,15 +390,20 @@ with tab_viewer:
                 gif_frames.append(Image.fromarray(frame))
         buf = io.BytesIO()
         if len(gif_frames) > 0:
-            gif_frames[0].save(buf, format='GIF', save_all=True, append_images=gif_frames[1:], duration=100, loop=0)
+            gif_frames[0].save(buf, format=ext, save_all=True, append_images=gif_frames[1:], duration=100, loop=0)
         return buf.getvalue()
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.download_button("Download Orbit GIF", data=create_orbit_gif(), file_name="orbit.gif", mime="image/gif")
+        st.download_button("Download Orbit GIF", data=create_orbit_gif("GIF"), file_name="orbit.gif", mime="image/gif")
     with c2:
         if renderer == "Layers (MPI)":
-            st.download_button("Download Dolly Zoom GIF", data=create_dolly_zoom_gif(), file_name="dolly.gif", mime="image/gif")
+            st.download_button("Download Dolly GIF", data=create_dolly_zoom_gif("GIF"), file_name="dolly.gif", mime="image/gif")
+    with c3:
+        st.download_button("Download Orbit WebP", data=create_orbit_gif("WEBP"), file_name="orbit.webp", mime="image/webp")
+    with c4:
+        if renderer == "Layers (MPI)":
+            st.download_button("Download Dolly WebP", data=create_dolly_zoom_gif("WEBP"), file_name="dolly.webp", mime="image/webp")
 
 with tab_how:
     c1, c2, c3, c4 = st.columns(4)
@@ -473,12 +478,18 @@ with tab_math:
         with c2:
             st.markdown("**Rotation Matrix R**")
             st.dataframe(R)
+            st.latex(r"R R^T = \begin{bmatrix}" + " & ".join([f"{x:.2f}" for x in (R @ R.T)[0]]) + r" \\ " +
+                     " & ".join([f"{x:.2f}" for x in (R @ R.T)[1]]) + r" \\ " +
+                     " & ".join([f"{x:.2f}" for x in (R @ R.T)[2]]) + r"\end{bmatrix}")
+            st.latex(r"\det(R) = " + f"{np.linalg.det(R):.2f}")
             
         if renderer == "Layers (MPI)":
             st.markdown("**Layer Homography H_k (for nearest layer)**")
-            t = np.array([base_x * (myaw / max_yaw) if max_yaw > 0 else 0,
+            t_extra = np.array([base_x * (myaw / max_yaw) if max_yaw > 0 else 0,
                           base_y * (mpitch / max_pitch) if max_pitch > 0 else 0,
                           0.0], dtype=np.float32)
+            c = np.array([0.0, 0.0, z_near], dtype=np.float32)
+            t = c - R @ c + t_extra
             H_k_matrix = layer_homographies(engine.K, R, t, z_k)
             st.dataframe(H_k_matrix[-1])
             
