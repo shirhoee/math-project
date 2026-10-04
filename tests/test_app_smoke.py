@@ -1,6 +1,8 @@
+import os
 from streamlit.testing.v1 import AppTest
 
 def test_app_loads():
+    os.environ["FAST_TEST"] = "1"
     at = AppTest.from_file("../app.py", default_timeout=180)
     at.run()
     
