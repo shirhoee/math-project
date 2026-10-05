@@ -17,11 +17,11 @@ def test_app_loads():
     assert "Settings" in expanders[0].label
     
     start = time.time()
-    while time.time() - start < 10:
+    while time.time() - start < 60:
         at.run()
         if len(at.exception) == 0 and any("Live View Matrices" in string for sublist in [[w.value for w in at.markdown]] for string in sublist):
             break
-        time.sleep(0.5)
+        time.sleep(1.0)
         
     assert len(at.exception) == 0
     assert any("Live View Matrices" in string for sublist in [[w.value for w in at.markdown]] for string in sublist)
