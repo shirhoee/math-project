@@ -1,14 +1,17 @@
 # 3D View Synthesis Engine
 ![Orbit GIF](docs/results/demo_indoor.gif)
 
-This project transforms a single flat photo into an interactive 3D scene you can look around in. It uses a deep learning model to estimate a depth map, then applies pure NumPy linear algebra to unproject the pixels into a 3D point cloud and render it from new viewpoints. The entire rendering pipeline—including rotation, perspective projection, splatting, and hole filling—is built from scratch without standard 3D libraries.
+This project transforms a single flat photo into an interactive 3D scene you can look around in. The photo becomes a stack of depth layers; moving the camera slides the layers by different amounts. It uses a deep learning model to estimate a depth map, then applies pure NumPy linear algebra to unproject the pixels into a 3D point cloud and render it from new viewpoints. The entire rendering pipeline—including rotation, perspective projection, splatting, and hole filling—is built from scratch without standard 3D libraries.
 
 ## Run It
+1. **Stop any old servers** running on ports 8501 or 8502 to ensure a clean start:
+   - On Windows: `Stop-Process -Name "python" -Force` or manually close old terminals.
+2. Run the application:
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
-*Note: On first run, the Depth Anything V2 model weights will be downloaded automatically.*
+*Note: The startup check will print the local Network URL. On first run, the Depth Anything V2 model weights will be downloaded automatically.*
 
 ## How It Works
 ```text

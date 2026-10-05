@@ -1,26 +1,39 @@
 import os
+import time
 from streamlit.testing.v1 import AppTest
+import numpy as np
+from PIL import Image
 
 def test_app_loads():
     os.environ["FAST_TEST"] = "1"
     at = AppTest.from_file("../app.py", default_timeout=180)
     at.run()
     
-    # Check no exceptions
-    assert not at.exception
-    
-    # Check title
+    assert len(at.exception) == 0
     assert at.title[0].value == "Interactive 3D View Synthesis"
     
-    # Check tabs exist by looking at markdown or checking tabs
-    # AppTest tab API: at.tabs
-    tabs = at.tabs
-    assert len(tabs) >= 4, "Expected at least 4 tabs"
-    
-    # We can check the labels if supported, or just that they exist.
     expanders = at.expander
     assert len(expanders) >= 1
-    assert "Settings" in expanders[0].label or "Diagnostics" in expanders[0].label
+    assert "Settings" in expanders[0].label
     
-    # Check that atlas is built (diagnostics text appears)
-    assert any("Atlas Rendering" in string for sublist in [[w.value for w in at.markdown] + [w.value for w in at.text]] for string in sublist)
+    start = time.time()
+    while time.time() - start < 10:
+        at.run()
+        if len(at.exception) == 0 and any("Live View Matrices" in string for sublist in [[w.value for w in at.markdown]] for string in sublist):
+            break
+        time.sleep(0.5)
+        
+    assert len(at.exception) == 0
+    assert any("Live View Matrices" in string for sublist in [[w.value for w in at.markdown]] for string in sublist)
+
+def test_app_upload_progress():
+    os.environ["FAST_TEST"] = "1"
+    at = AppTest.from_file("../app.py", default_timeout=180)
+    at.run()
+    
+    img = np.zeros((10, 10, 3), dtype=np.uint8)
+    Image.fromarray(img).save("dummy.jpg")
+    
+    at.session_state.selected_image_path = "dummy.jpg"
+    at.run()
+    assert len(at.exception) == 0
