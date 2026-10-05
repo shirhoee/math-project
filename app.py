@@ -115,12 +115,12 @@ def run_build_job(job_id, img_path, renderer, motion_preset_str, z_near, z_far, 
         engine = TransformEngine(W, H, fov_deg)
         Z_map = engine.disparity_to_depth(disparity, z_near, z_far)
         P = engine.unproject_to_3d(Z_map)
-        z_pivot = float(np.median(P[:, 2]))
+        z_pivot = 0.8 * z_far + 0.2 * z_near
         
         parallax_total = 2 * preset_ratio * W
         n_yaw = min(41, int(np.ceil(parallax_total / 2.5)) | 1)
         n_pitch = 3
-        max_yaw = 15.0
+        max_yaw = 20.0
         max_pitch = 5.0
         if is_fast_test:
             n_yaw, n_pitch = 3, 1
