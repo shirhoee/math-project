@@ -56,6 +56,21 @@ if "job_result" not in st.session_state:
 if "selected_image_path" not in st.session_state:
     sample_imgs = sorted(glob.glob("assets/samples/01_*.jpg"))
     st.session_state.selected_image_path = sample_imgs[0] if sample_imgs else None
+    
+    # cleanup stale cache
+    cache_dir = os.environ.get("CACHE_DIR", "assets/samples/cache")
+    if os.path.exists(cache_dir):
+        for f in glob.glob(f"{cache_dir}/*.pkl"):
+            try:
+                with open(f, "rb") as fp:
+                    data = pickle.load(fp)
+                img_path = data.get("img_path", "")
+                settings_str = data.get("settings_str", "")
+                if get_hash(img_path, settings_str) != os.path.basename(f).replace(".pkl", ""):
+                    os.remove(f)
+            except Exception:
+                try: os.remove(f)
+                except: pass
 
 global_job_results = {}
 global_job_status = {}
@@ -79,21 +94,18 @@ def run_build_job(job_id, img_path, renderer, motion_preset_str, z_near, z_far, 
         H, W, _ = img_array.shape
         
         preset_ratio = float(motion_preset_str.split("(")[1].split(")")[0])
-        settings_str = f"W{W}_H{H}_Layers{n_layers}_Preset{preset_ratio}"
-        if "upload_" not in img_path and renderer == "Layers (MPI)" and sharpen_amount == 0.35 and z_near == 1.0 and z_far == 4.0 and not is_fast_test:
-            h = get_hash(img_path, settings_str)
-            cache_path = f"assets/samples/cache/{h}.pkl"
-            if os.path.exists(cache_path):
-                global_job_status[job_id] = "Loading from cache..."
-                global_job_progress[job_id] = 50
-                with open(cache_path, "rb") as f:
-                    data = pickle.load(f)
-                data["img_array"] = img_array
-                data["renderer"] = renderer
-                global_job_results[job_id] = data
-                global_job_status[job_id] = None
-                return
-
+        parallax_total = 2 * preset_ratio * W
+        n_yaw = min(41, int(np.ceil(parallax_total / 2.5)) | 1)
+        n_pitch = 3
+        if is_fast_test:
+            n_yaw, n_pitch = 3, 1
+            
+        settings_str = f"CodeV2_W{W}_H{H}_Grid{n_yaw}x{n_pitch}_Preset{preset_ratio}_Z{z_near}-{z_far}_L{n_layers}"
+        cache_dir = os.environ.get("CACHE_DIR", "assets/samples/cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        h = get_hash(img_path, settings_str)
+        cache_path = os.path.join(cache_dir, f"{h}.pkl")
+        
         global_job_status[job_id] = "Estimating depth..."
         global_job_progress[job_id] = 20
         model = get_depth_model("Small")
@@ -131,8 +143,12 @@ def run_build_job(job_id, img_path, renderer, motion_preset_str, z_near, z_far, 
             result = {
                 "img_array": img_array, "disparity": disparity, "layers": layers, "z_k": z_k,
                 "frames_b64": frames_b64, "n_yaw": n_yaw, "n_pitch": n_pitch, "max_yaw": max_yaw, "max_pitch": max_pitch,
-                "z_pivot": z_pivot, "H": H, "W": W, "renderer": renderer, "baseline_x": baseline_x, "baseline_y": baseline_y
+                "z_pivot": z_pivot, "H": H, "W": W, "renderer": renderer, "baseline_x": baseline_x, "baseline_y": baseline_y,
+                "cache_key": h, "settings_str": settings_str, "img_path": img_path
             }
+            if "upload_" not in img_path and not is_fast_test:
+                with open(cache_path, "wb") as f:
+                    pickle.dump(result, f)
         else:
             global_job_status[job_id] = "Rendering views (Point Splatting)..."
             global_job_progress[job_id] = 50
@@ -167,11 +183,40 @@ def start_job(img_path, renderer, motion_preset_str, z_near, z_far, n_layers, sh
     st.session_state.job_id += 1
     st.session_state.job_result = None
     jid = st.session_state.job_id
+    
+    is_fast_test = os.environ.get("FAST_TEST") == "1"
+    
+    if "upload_" not in img_path and renderer == "Layers (MPI)" and not is_fast_test:
+        image = Image.open(img_path)
+        max_dim = 1024
+        W, H = image.width, image.height
+        if W > max_dim:
+            ratio = max_dim / float(W)
+            W, H = max_dim, int(H * ratio)
+            
+        preset_ratio = float(motion_preset_str.split("(")[1].split(")")[0])
+        parallax_total = 2 * preset_ratio * W
+        n_yaw = min(41, int(np.ceil(parallax_total / 2.5)) | 1)
+        n_pitch = 3
+        settings_str = f"CodeV2_W{W}_H{H}_Grid{n_yaw}x{n_pitch}_Preset{preset_ratio}_Z{z_near}-{z_far}_L{n_layers}"
+        h = get_hash(img_path, settings_str)
+        cache_path = os.path.join(os.environ.get("CACHE_DIR", "assets/samples/cache"), f"{h}.pkl")
+        
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "rb") as f:
+                    data = pickle.load(f)
+                data["renderer"] = renderer
+                st.session_state.job_result = data
+                global_job_status[jid] = None
+                global_job_results[jid] = data
+                return
+            except Exception:
+                pass
+
     global_job_status[jid] = "Starting..."
     global_job_progress[jid] = 0
     global_job_results[jid] = None
-    
-    is_fast_test = os.environ.get("FAST_TEST") == "1"
     
     t = threading.Thread(target=run_build_job, args=(
         jid, img_path, renderer, motion_preset_str, z_near, z_far, n_layers, sharpen_amount, is_fast_test
@@ -183,7 +228,10 @@ def start_job(img_path, renderer, motion_preset_str, z_near, z_far, n_layers, sh
 st.title("Interactive 3D View Synthesis")
 st.markdown("A single photo becomes a 3D scene you can look around in: depth estimation plus linear algebra.")
 
-@st.fragment(run_every=1)
+jid = st.session_state.job_id
+is_running = global_job_status.get(jid) is not None
+
+@st.fragment(run_every=1 if is_running else None)
 def show_progress():
     jid = st.session_state.job_id
     if global_job_results.get(jid) is not None and st.session_state.job_result is None:
@@ -224,75 +272,91 @@ if st.session_state.job_result is not None:
     js_frames = str(res["frames_b64"]).replace("'", '"')
     
     html_code = f"""
-    <div class="viewer-container" id="viewer-container">
-        <canvas id="view-canvas" width="{res['W']}" height="{res['H']}"></canvas>
+    <div class="viewer-container" id="viewer-container" style="max-height: 65vh; overflow: hidden; display: flex; justify-content: center;">
+        <canvas id="view-canvas" width="{res['W']}" height="{res['H']}" style="max-height: 65vh; width: auto; max-width: 100%; object-fit: contain;"></canvas>
     </div>
     <script>
-    const frames = {js_frames};
+    const frames_b64 = {js_frames};
     const nYaw = {res['n_yaw']};
     const nPitch = {res['n_pitch']};
     const blendMode = "{blend_mode}";
+    // Reset Key: {st.session_state.get('reset_view_toggle', False)}
     
     const canvas = document.getElementById("view-canvas");
     const ctx = canvas.getContext("2d");
     
-    const images = [];
+    let frames = new Array(frames_b64.length);
     let loadedCount = 0;
-    for (let i = 0; i < frames.length; i++) {{
-        const img = new Image();
-        img.onload = () => {{
+    
+    async function loadFrames() {{
+        for (let i = 0; i < frames_b64.length; i++) {{
+            const res = await fetch(frames_b64[i]);
+            const blob = await res.blob();
+            const bmp = await createImageBitmap(blob);
+            frames[i] = bmp;
             loadedCount++;
-            if(loadedCount === frames.length) {{
-                drawFrame(0.5, 0.5);
-            }}
-        }};
-        img.src = frames[i];
-        images.push(img);
+        }}
+        needsRedraw = true;
     }}
+    loadFrames();
     
     let isDragging = false;
     let autoPlay = true;
     let wiggleT = 0;
     let mx = 0.5;
     let my = 0.5;
+    let needsRedraw = false;
+    let lastMx = -1;
+    let lastMy = -1;
     
-    function getFrames(x, y) {{
+    function getBlendFrames(x, y) {{
         let p = y * (nPitch - 1);
         let yw = x * (nYaw - 1);
         
         let p_idx = Math.min(Math.floor(p), nPitch - 2);
         let y_idx = Math.min(Math.floor(yw), nYaw - 2);
         
+        if (blendMode === "Nearest Frame" || frames.length === 1) {{
+            let final_p = Math.round(p);
+            let final_y = Math.round(yw);
+            return [{{img: frames[final_p * nYaw + final_y], weight: 1.0}}];
+        }}
+        
         let dp = p - p_idx;
         let dy = yw - y_idx;
         
-        if (blendMode === "Nearest Frame") {{
-            let final_p = Math.round(p);
-            let final_y = Math.round(yw);
-            return [{{img: images[final_p * nYaw + final_y], weight: 1.0}}];
-        }}
+        let arr = [
+            {{img: frames[p_idx * nYaw + y_idx], weight: (1-dp)*(1-dy)}},
+            {{img: frames[p_idx * nYaw + y_idx + 1], weight: (1-dp)*dy}},
+            {{img: frames[(p_idx + 1) * nYaw + y_idx], weight: dp*(1-dy)}},
+            {{img: frames[(p_idx + 1) * nYaw + y_idx + 1], weight: dp*dy}}
+        ];
+        arr.sort((a, b) => b.weight - a.weight);
         
-        let idx00 = p_idx * nYaw + y_idx;
-        let idx01 = p_idx * nYaw + y_idx + 1;
-        let idx10 = (p_idx + 1) * nYaw + y_idx;
-        let idx11 = (p_idx + 1) * nYaw + y_idx + 1;
+        let totalW = arr[0].weight + arr[1].weight;
+        if (totalW < 0.001) return [{{img: frames[0], weight: 1.0}}];
         
         return [
-            {{img: images[idx00], weight: (1-dp)*(1-dy)}},
-            {{img: images[idx01], weight: (1-dp)*dy}},
-            {{img: images[idx10], weight: dp*(1-dy)}},
-            {{img: images[idx11], weight: dp*dy}}
+            {{img: arr[0].img, weight: 1.0}},
+            {{img: arr[1].img, weight: arr[1].weight / totalW}}
         ];
     }}
     
-    function drawFrame(x, y) {{
-        const f = getFrames(x, y);
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        for(let i=0; i<f.length; i++) {{
-            if(f[i].weight > 0.001) {{
-                ctx.globalAlpha = f[i].weight;
-                ctx.drawImage(f[i].img, 0, 0);
-            }}
+    function drawFrame() {{
+        if (loadedCount < frames_b64.length) return;
+        
+        if (mx === lastMx && my === lastMy && !needsRedraw) return;
+        lastMx = mx;
+        lastMy = my;
+        needsRedraw = false;
+        
+        const f = getBlendFrames(mx, my);
+        ctx.globalAlpha = 1.0;
+        if (f[0].img) ctx.drawImage(f[0].img, 0, 0, canvas.width, canvas.height);
+        
+        if (f.length > 1 && f[1].img && f[1].weight > 0.001) {{
+            ctx.globalAlpha = f[1].weight;
+            ctx.drawImage(f[1].img, 0, 0, canvas.width, canvas.height);
         }}
         ctx.globalAlpha = 1.0;
     }}
@@ -306,7 +370,7 @@ if st.session_state.job_result is not None:
         my = (e.clientY - rect.top) / rect.height;
         mx = Math.max(0, Math.min(1, mx));
         my = Math.max(0, Math.min(1, my));
-        drawFrame(mx, my);
+        needsRedraw = true;
     }});
     
     canvas.addEventListener('touchstart', (e) => {{ isDragging = true; autoPlay = false; }});
@@ -319,17 +383,28 @@ if st.session_state.job_result is not None:
         my = (e.touches[0].clientY - rect.top) / rect.height;
         mx = Math.max(0, Math.min(1, mx));
         my = Math.max(0, Math.min(1, my));
-        drawFrame(mx, my);
+        needsRedraw = true;
     }}, {{passive: false}});
     
-    setInterval(() => {{
-        if(autoPlay && loadedCount === frames.length) {{
-            wiggleT += 0.05;
+    let lastTime = 0;
+    function loop(time) {{
+        requestAnimationFrame(loop);
+        if (document.hidden) return;
+        
+        let dt = time - lastTime;
+        lastTime = time;
+        if (dt > 100) dt = 16;
+        
+        if(autoPlay && loadedCount === frames_b64.length) {{
+            wiggleT += 0.001 * dt;
             mx = 0.5 + Math.sin(wiggleT) * 0.4;
             my = 0.5 + Math.cos(wiggleT * 0.7) * 0.4;
-            drawFrame(mx, my);
+            needsRedraw = true;
         }}
-    }}, 50);
+        
+        drawFrame();
+    }}
+    requestAnimationFrame(loop);
     </script>
     """
     st.components.v1.html(html_code, height=600)
@@ -432,21 +507,32 @@ if st.session_state.job_result is not None:
 
 st.markdown("---")
 
-# Sample Gallery at the bottom
+def on_select_sample(img_path):
+    st.session_state.previous_image_path = st.session_state.get("selected_image_path")
+    st.session_state.selected_image_path = img_path
+    start_job(img_path, "Layers (MPI)", "Normal (0.07)", 1.0, 4.0, 16, 0.35)
+
+def on_reset_view():
+    st.session_state.reset_view_toggle = not st.session_state.get("reset_view_toggle", False)
+
+def on_prev_sample():
+    prev = st.session_state.get("previous_image_path")
+    if prev:
+        on_select_sample(prev)
+
+st.markdown("---")
+
 sample_imgs = sorted(glob.glob("assets/samples/01_*.jpg"))
 if len(sample_imgs) >= 3:
     c1, c2, c3 = st.columns(3)
     for i, col in enumerate([c1, c2, c3]):
         img_path = sample_imgs[i]
         with col:
-            # Load and crop square
             img = Image.open(img_path).convert("RGB")
             s = min(img.width, img.height)
             img = img.crop(((img.width-s)//2, (img.height-s)//2, (img.width+s)//2, (img.height+s)//2))
             st.image(img, use_container_width=True)
-            if st.button(f"Load Sample {i+1}", key=f"load_btn_{i}", use_container_width=True):
-                st.session_state.selected_image_path = img_path
-                start_job(img_path, "Layers (MPI)", "Normal (0.07)", 1.0, 4.0, 16, 0.35)
+            st.button(f"Load Sample {i+1}", key=f"load_btn_{i}", use_container_width=True, on_click=on_select_sample, args=(img_path,))
 
 uploaded = st.file_uploader("Upload your own photo (JPEG/PNG)", type=["jpg", "jpeg", "png"])
 if uploaded is not None:
@@ -454,9 +540,7 @@ if uploaded is not None:
     with open(path, "wb") as f:
         f.write(uploaded.getbuffer())
     if st.session_state.selected_image_path != path:
-        st.session_state.selected_image_path = path
-        start_job(path, "Layers (MPI)", "Normal (0.07)", 1.0, 4.0, 16, 0.35)
+        on_select_sample(path)
 
-# Initialize on first load
 if st.session_state.job_result is None and st.session_state.job_status is None:
     start_job(st.session_state.selected_image_path, "Layers (MPI)", "Normal (0.07)", 1.0, 4.0, 16, 0.35)

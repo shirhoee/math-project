@@ -394,15 +394,8 @@ def render_atlas_mpi(layers, z_k, K, angles, baseline_x_max, baseline_y_max, max
                 K_render[0, 0] *= zoom
                 K_render[1, 1] *= zoom
                 
-                # Render pitch rows at lower res? 
-                downscale = 1.0
-                if p != n_pitch // 2:
-                    downscale = 0.5
-                    
-                K_render[:2, :] *= downscale
-                
                 H_k = layer_homographies(K, R, t, z_k, K_render=K_render)
-                tasks.append((p, y, executor.submit(_render_single_frame, layers, H_k, 80, sharpen_amount, downscale)))
+                tasks.append((p, y, executor.submit(_render_single_frame, layers, H_k, 80, sharpen_amount, 1.0)))
                 
         # To keep the order:
         tasks.sort(key=lambda x: (x[0], x[1]))
