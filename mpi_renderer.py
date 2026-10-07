@@ -214,23 +214,24 @@ def bicubic_sample(img, u, v):
     v0 = np.floor(v).astype(np.int32)
     
     u_unclamped = np.stack([u0 - 1, u0, u0 + 1, u0 + 2], axis=-1)
-    v_unclamped = np.stack([v0 - 1, v0, v0 + 1, v0 + 2], axis=-1)
-    
     u_idx = np.clip(u_unclamped, 0, W - 1)
+    v_unclamped = np.stack([v0 - 1, v0, v0 + 1, v0 + 2], axis=-1)
     v_idx = np.clip(v_unclamped, 0, H - 1)
     
-    u_dist = np.abs(u[:, None] - u_unclamped)
-    v_dist = np.abs(v[:, None] - v_unclamped)
+    u_dist = np.abs(u[..., None] - u_unclamped)
+    v_dist = np.abs(v[..., None] - v_unclamped)
     
     wu = catmull_rom_weights(u_dist)
     wv = catmull_rom_weights(v_dist)
     
-    v_grid = v_idx[:, :, None]
-    u_grid = u_idx[:, None, :]
-    pixels = img[v_grid, u_grid]
-    
-    temp = np.einsum('nvyc,ny->nvc', pixels, wu)
-    res = np.einsum('nvc,nv->nc', temp, wv)
+    res = 0
+    for i in range(4):
+        row_v = v_idx[..., i]
+        row_val = 0
+        for j in range(4):
+            row_val += img[row_v, u_idx[..., j]] * wu[..., j, None]
+        res += row_val * wv[..., i, None]
+        
     return res
 
 def render_mpi(layers, H_k, downscale=1.0):
@@ -407,7 +408,7 @@ def render_atlas_mpi(layers, z_k, K, angles, baseline_x_max, baseline_y_max, max
         shift_x_px_max = np.abs(t_max[0] * fx / z_near + fx * R_max[0, 2])
         shift_y_px_max = np.abs(t_max[1] * fy / z_near + fy * R_max[1, 2])
         margin_max = max(shift_x_px_max / (layers.shape[2] / 2.0), shift_y_px_max / (layers.shape[1] / 2.0))
-        zoom = 1.0 + margin_max
+        zoom = min(1.05, 1.0 + margin_max)
         
         for p in range(n_pitch):
             for y in range(n_yaw):

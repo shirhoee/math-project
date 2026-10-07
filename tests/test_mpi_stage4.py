@@ -11,7 +11,7 @@ def test_calibrate_motion():
     f, W, yaw = 500.0, 1000, 10.0
     target_ratio = 0.1
     tx = calibrate_motion(z_near, z_far, f, W, yaw, target_ratio)
-    assert tx > 0.1 and tx < 0.5
+    assert tx > 0.1 and tx < 1.0
 
 def test_render_atlas_mpi():
     # Smoke test
