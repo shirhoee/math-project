@@ -1,7 +1,7 @@
 # 04 Phases and Status
 
 **Overall Status:** IN PROGRESS
-**Current Phase:** P4
+**Current Phase:** P5
 **Last Updated:** 2026-10-07T19:53:00+05:30
 **Last Commit Hash:** TBD
 
@@ -13,8 +13,8 @@
 | P1 | Geometry Port | Port math from v1 | `src/geometry` | Unit tests pass, math accurate | DONE | tests pass, committed |
 | P2 | Depth Module | Model loading & caching | `src/depth`, precomputed samples | Load time logged, disk cache works | DONE | timing report, tests pass |
 | P3 | Mesh Builder | Unproject depth to mesh | `src/mesh` | Discontinuities cut, texture UVs map correctly | DONE | tests pass |
-| P4 | Backend & Viewer | FastAPI & WebGL UI | `src/server`, `web/` | Uploads work, interactive viewer | IN PROGRESS | |
-| P5 | Quality Pass | Reduce stretching, polish | Updated mesh/UI | Gates met, smear reduced | NOT STARTED | |
+| P4 | Backend & Viewer | FastAPI & WebGL UI | `src/server`, `web/` | Uploads work, interactive viewer | DONE | tests pass |
+| P5 | Quality Pass | Reduce stretching, polish | Updated mesh/UI | Gates met, smear reduced | IN PROGRESS | |
 | P6 | Finalization | Matrices UI, reports | Demo script, Viva notes, matrix panel | Report complete | NOT STARTED | |
 | B | Stage B (Two-View) | Two-view geometry | *PLANNED (DO NOT START)* | | NOT STARTED | |
 
@@ -44,9 +44,16 @@
 - [x] Texture UV mapping
 - [x] NumPy reference renderer for tests
 
+### P4
+- [x] FastAPI endpoints (POST /process, GET /samples)
+- [x] Static web viewer with OrbitControls
+- [x] Camera limits
+- [x] Loading indicator and error display
+- [x] Sample picker and upload
+
 ## Current State
-- Mesh builder ported and verified.
-- P4 (Backend & Viewer) in progress.
+- Backend and Viewer integrated and tested.
+- P5 (Quality Pass) in progress.
 
 ## Blockers and Workarounds
 - None currently.

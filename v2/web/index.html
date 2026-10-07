@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Photo Viewer (V2)</title>
+    <link rel="stylesheet" href="/web/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <div id="ui-container">
+        <h1>3D Photo Viewer</h1>
+        
+        <div class="controls">
+            <label for="sample-select">Samples:</label>
+            <select id="sample-select">
+                <option value="">-- Select a sample --</option>
+            </select>
+            <button id="load-sample-btn">Load Sample</button>
+        </div>
+        
+        <div class="controls">
+            <label for="upload-input">Or Upload:</label>
+            <input type="file" id="upload-input" accept="image/*">
+            <button id="upload-btn">Upload & Process</button>
+        </div>
+
+        <div id="status-box" class="hidden"></div>
+    </div>
+
+    <div id="loading-overlay" class="hidden">
+        <div class="spinner"></div>
+        <p>Processing...</p>
+    </div>
+
+    <div id="viewer-container"></div>
+
+    <script src="/web/app.js"></script>
+</body>
+</html>
