@@ -1,0 +1,23 @@
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore virtual environments
+.venv/
+venv/
+env/
+
+# Ignore outputs and cache
+cache/
+outputs/
+
+# Ignore compiled extensions
+*.so
+*.dll
+*.pyd
+
+# Ignore temp files
+*.npz
+*.swp
+*~
+.DS_Store

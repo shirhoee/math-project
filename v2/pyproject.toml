@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v2_3d_viewer"
+version = "0.1.0"
+description = "V2 Rewrite for Mathematical Foundation for AI and Data Science"
+authors = [
+    {name = "Developer"}
+]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "numpy",
+    "torch",
+    "torchvision",
+    "transformers",
+    "pillow",
+    "python-multipart"
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "httpx"
+]
