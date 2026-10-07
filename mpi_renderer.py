@@ -214,23 +214,24 @@ def bicubic_sample(img, u, v):
     v0 = np.floor(v).astype(np.int32)
     
     u_unclamped = np.stack([u0 - 1, u0, u0 + 1, u0 + 2], axis=-1)
-    v_unclamped = np.stack([v0 - 1, v0, v0 + 1, v0 + 2], axis=-1)
-    
     u_idx = np.clip(u_unclamped, 0, W - 1)
+    v_unclamped = np.stack([v0 - 1, v0, v0 + 1, v0 + 2], axis=-1)
     v_idx = np.clip(v_unclamped, 0, H - 1)
     
-    u_dist = np.abs(u[:, None] - u_unclamped)
-    v_dist = np.abs(v[:, None] - v_unclamped)
+    u_dist = np.abs(u[..., None] - u_unclamped)
+    v_dist = np.abs(v[..., None] - v_unclamped)
     
     wu = catmull_rom_weights(u_dist)
     wv = catmull_rom_weights(v_dist)
     
-    v_grid = v_idx[:, :, None]
-    u_grid = u_idx[:, None, :]
-    pixels = img[v_grid, u_grid]
-    
-    temp = np.einsum('nvyc,ny->nvc', pixels, wu)
-    res = np.einsum('nvc,nv->nc', temp, wv)
+    res = 0
+    for i in range(4):
+        row_v = v_idx[..., i]
+        row_val = 0
+        for j in range(4):
+            row_val += img[row_v, u_idx[..., j]] * wu[..., j, None]
+        res += row_val * wv[..., i, None]
+        
     return res
 
 def render_mpi(layers, H_k, downscale=1.0):
@@ -300,16 +301,44 @@ def parallax_px(z, f, baseline):
     """
     return baseline * f / z
 
-def calibrate_motion(z_near, z_far, f, W, yaw_deg, target_ratio=0.07):
+def calibrate_motion(z_near, z_far, f, W, yaw_deg, target_ratio=0.07, z_pivot=None):
     """
     Computes camera baseline t_x needed to achieve a target near-to-far shift ratio.
-    Near-to-far shift = (f * t_x / cos(yaw)) * (1/z_near - 1/z_far)
+    Accounts for the pivot rotation and the pose-dependent zoom.
+    Uses a robust grid search.
     """
     if z_far <= z_near: return 0.0
+    if z_pivot is None:
+        z_pivot = (z_near + z_far) / 2.0
+        
     yaw_rad = np.radians(yaw_deg)
-    target_shift_px = target_ratio * W
-    baseline = (target_shift_px * np.cos(yaw_rad)) / (f * (1.0/z_near - 1.0/z_far))
-    return baseline
+    target_parallax = target_ratio * W
+    
+    sin_y = np.sin(yaw_rad)
+    cos_y = np.cos(yaw_rad)
+    t_cam_z = z_pivot - z_pivot * cos_y
+    
+    bound = 0.5 * z_pivot
+    txs = np.linspace(-bound, bound, 5000)
+    
+    t_cam_x = txs - z_pivot * sin_y
+    shift_x_px = np.abs(t_cam_x * f / z_near + f * sin_y)
+    margin = shift_x_px / (W / 2.0)
+    zoom = 1.0 + margin
+    
+    Z_cam_near = z_near * cos_y + t_cam_z
+    X_cam_near = z_near * sin_y + t_cam_x
+    proj_near = (f * X_cam_near / Z_cam_near) * zoom
+    
+    Z_cam_far = z_far * cos_y + t_cam_z
+    X_cam_far = z_far * sin_y + t_cam_x
+    proj_far = (f * X_cam_far / Z_cam_far) * zoom
+    
+    parallax = np.abs(proj_near - proj_far)
+    err = np.abs(parallax - target_parallax)
+    
+    best_idx = np.argmin(err)
+    return txs[best_idx]
 
 def unsharp_mask(img, amount=0.35):
     if amount <= 0: return img
@@ -367,6 +396,20 @@ def render_atlas_mpi(layers, z_k, K, angles, baseline_x_max, baseline_y_max, max
     tasks = []
     
     with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Pre-compute fixed zoom for the maximum displacement
+        t_x_max = baseline_x_max
+        t_y_max = baseline_y_max
+        R_max = engine.get_rotation_matrix(np.radians(max_pitch), np.radians(max_yaw), 0.0)
+        c = np.array([0.0, 0.0, z_pivot], dtype=np.float32)
+        t_max = c - R_max @ c + np.array([t_x_max, t_y_max, 0.0], dtype=np.float32)
+        
+        fx, fy = K[0, 0], K[1, 1]
+        z_near = np.min(z_k)
+        shift_x_px_max = np.abs(t_max[0] * fx / z_near + fx * R_max[0, 2])
+        shift_y_px_max = np.abs(t_max[1] * fy / z_near + fy * R_max[1, 2])
+        margin_max = max(shift_x_px_max / (layers.shape[2] / 2.0), shift_y_px_max / (layers.shape[1] / 2.0))
+        zoom = min(1.05, 1.0 + margin_max)
+        
         for p in range(n_pitch):
             for y in range(n_yaw):
                 yaw_deg = angles[p, y, 0]
@@ -378,31 +421,14 @@ def render_atlas_mpi(layers, z_k, K, angles, baseline_x_max, baseline_y_max, max
                 t_extra = np.array([t_x, t_y, 0.0], dtype=np.float32)
                 R = engine.get_rotation_matrix(np.radians(pitch_deg), np.radians(yaw_deg), 0.0)
                 
-                c = np.array([0.0, 0.0, z_pivot], dtype=np.float32)
                 t = c - R @ c + t_extra
-                
-                fx, fy = K[0, 0], K[1, 1]
-                z_near = np.min(z_k)
-                # Max displacement is dominated by near-to-far shift
-                # At z_near, shift is t[0]*f/z_near. But wait, we want exact shift:
-                shift_x_px = np.abs(t[0] * fx / z_near + fx * R[0,2])
-                shift_y_px = np.abs(t[1] * fy / z_near + fy * R[1,2])
-                margin = max(shift_x_px / (layers.shape[2] / 2.0), shift_y_px / (layers.shape[1] / 2.0))
-                zoom = 1.0 + margin
                 
                 K_render = K.copy()
                 K_render[0, 0] *= zoom
                 K_render[1, 1] *= zoom
                 
-                # Render pitch rows at lower res? 
-                downscale = 1.0
-                if p != n_pitch // 2:
-                    downscale = 0.5
-                    
-                K_render[:2, :] *= downscale
-                
                 H_k = layer_homographies(K, R, t, z_k, K_render=K_render)
-                tasks.append((p, y, executor.submit(_render_single_frame, layers, H_k, 80, sharpen_amount, downscale)))
+                tasks.append((p, y, executor.submit(_render_single_frame, layers, H_k, 80, sharpen_amount, 1.0)))
                 
         # To keep the order:
         tasks.sort(key=lambda x: (x[0], x[1]))
