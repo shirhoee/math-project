@@ -33,6 +33,21 @@ function animate() {
     requestAnimationFrame(animate);
     if(controls) controls.update();
     if(renderer && scene && camera) renderer.render(scene, camera);
+    
+    if(camera) {
+        const rEl = document.getElementById('matrix-r');
+        const tEl = document.getElementById('matrix-t');
+        
+        // Extract R and t from camera
+        const m = camera.matrixWorld.elements; // 16 array
+        // Matrix elements in three.js are column-major
+        // R is top 3x3
+        const rStr = `R = [\n  ${m[0].toFixed(2)}, ${m[4].toFixed(2)}, ${m[8].toFixed(2)}\n  ${m[1].toFixed(2)}, ${m[5].toFixed(2)}, ${m[9].toFixed(2)}\n  ${m[2].toFixed(2)}, ${m[6].toFixed(2)}, ${m[10].toFixed(2)}\n]`;
+        const tStr = `t = [${m[12].toFixed(2)}, ${m[13].toFixed(2)}, ${m[14].toFixed(2)}]`;
+        
+        rEl.innerText = rStr;
+        tEl.innerText = tStr;
+    }
 }
 
 function b64ToFloat32Array(b64) {
@@ -163,6 +178,13 @@ function buildThreeMesh(data) {
     controls.maxAzimuthAngle = Math.PI/6;
     controls.minPolarAngle = Math.PI/2 - Math.PI/6;
     controls.maxPolarAngle = Math.PI/2 + Math.PI/6;
+    
+    // Display K matrix
+    if(data.K) {
+        const K = data.K;
+        const kStr = `K = [\n  ${K[0][0].toFixed(1)}, ${K[0][1].toFixed(1)}, ${K[0][2].toFixed(1)}\n  ${K[1][0].toFixed(1)}, ${K[1][1].toFixed(1)}, ${K[1][2].toFixed(1)}\n  ${K[2][0].toFixed(1)}, ${K[2][1].toFixed(1)}, ${K[2][2].toFixed(1)}\n]`;
+        document.getElementById('matrix-k').innerText = kStr;
+    }
 }
 
 document.getElementById('load-sample-btn').addEventListener('click', () => {
