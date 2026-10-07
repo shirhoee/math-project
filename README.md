@@ -1,64 +1,31 @@
-# 3D View Synthesis Engine
-![Orbit GIF](docs/results/demo_indoor.gif)
+# 3D Photo Viewer
 
-This project transforms a single flat photo into an interactive 3D scene you can look around in. The photo becomes a stack of depth layers; moving the camera slides the layers by different amounts. It uses a deep learning model to estimate a depth map, then applies pure NumPy linear algebra to unproject the pixels into a 3D point cloud and render it from new viewpoints. The entire rendering pipeline—including rotation, perspective projection, splatting, and hole filling—is built from scratch without standard 3D libraries.
+Transforms a single flat photo into an interactive 3D scene using depth estimation and a Multi-Plane Image (MPI) homography renderer. It precomputes 123 views in the background and blends them on the frontend for instant, 60fps parallax motion.
 
-## Run It
-1. **Stop any old servers** running on ports 8501 or 8502 to ensure a clean start:
-   - On Windows: `Stop-Process -Name "python" -Force` or manually close old terminals.
-2. Run the application:
+## Demos
+
+| Indoor | Kyoto | Mountains | Cup | Park |
+|:---:|:---:|:---:|:---:|:---:|
+| ![Indoor](docs/results/demo_01_sample_1.webp) | ![Kyoto](docs/results/demo_02_sample_2.webp) | ![Mountains](docs/results/demo_03_sample_3.webp) | ![Cup](docs/results/demo_04_sample_4.webp) | ![Park](docs/results/demo_05_sample_5.webp) |
+
+## Setup & Run (Local)
+
+1. Stop any old servers running on ports 8501 or 8502 (e.g. `Stop-Process -Name "python" -Force` on Windows).
+2. Install requirements and start the app:
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
-*Note: The startup check will print the local Network URL. On first run, the Depth Anything V2 model weights will be downloaded automatically.*
+3. Open the Local URL printed in the terminal. The app will open instantly and load samples from cache.
 
 ## How It Works
-```text
-[Original Image] -> (Depth Model) -> [Disparity Map] -> (Intrinsic K^-1) -> [3D Point Cloud] -> (Rotation R) -> [Transformed 3D Points] -> (Intrinsic K + Z-buffer) -> [New View]
-```
 
-## Occlusion Limitation
-Because the input is a single 2D image, the system has no information about what lies behind foreground objects. When rotating the camera, these occluded areas are revealed as "holes." We use an iterative multi-scale pyramid fill to patch these holes using background colors, but at extreme angles, this can look stretched or blocky. For the best experience, keep the rotation angles small (±12°).
-
-## Parameters
-
-| Name | Default | Meaning | Effect |
-|---|---|---|---|
-| FOV (deg) | 60.0 | Horizontal field of view | Controls perspective distortion |
-| Z Pivot | -1.0 (auto) | Depth of rotation centre | -1 uses median depth |
-| Splatting | True | Adaptive fill-only footprint expansion | Closes sub-pixel holes from projection |
-| Edge Masking | True | Depth-gradient threshold (tau=0.05) | Flags foreground/background boundary pixels |
-| Edge Mode | demote | How flagged pixels are handled | `demote`: fill-only pass; `drop`: discard |
-| Auto Crop | True | Off-centre principal-point shift + focal scaling | Removes border voids after rotation |
-| Hole Filling | True | Pyramid fill | Fills remaining holes with background-biased content |
-| Roll (deg) | ±5.0 | Roll rotation limit | Limited to avoid severe over-cropping |
-
-
-
-## Performance (800 x 534, sample.jpg)
-
-| Mode | Mean (ms) | p95 (ms) |
-|---|---|---|
-| Preview (stride 2, fill) | 53.5 | 75.3 |
-| HQ (stride 1, fill) | 209.7 | 233.6 |
-
-Identity difference with default settings: 0.000%.
-
-## Results Gallery
-
-Side-by-side images (original | no-fill | filled) are in `docs/results/`.
-
-## V2 Layered (MPI) Renderer
-A new Multi-Plane Image (MPI) renderer achieves flawless image reconstruction (PSNR > 50 dB) and perfect continuity by building layered depth representations and compositing them via homographies.
-This renderer runs completely mathematically using pure NumPy without point splatting. 
-You can view a contact sheet in `assets/samples/contact_sheet.jpg`.
+The V2 engine replaces point clouds with a layered **Multi-Plane Image (MPI)** renderer.
+1. The image depth is estimated and sliced into 16 layers (Z-planes).
+2. For any camera pose, each layer undergoes a pure 2D perspective warp (Homography).
+3. The warped layers are composited back-to-front.
+4. A high-density grid (41 columns x 3 rows) of these views is pre-rendered into a WebGL-friendly atlas.
+5. The JavaScript frontend smoothly interpolates between these pre-rendered frames as the user moves their mouse.
 
 ## Photo Credits
-Sample photos were sourced from Wikimedia Commons:
-- Living room (4102748829).jpg (CC BY-SA)
-- Wooden and bamboo facades of dwellings with sudare in a cobbled street of Gion... (CC BY-SA)
-- Cheops Mountain seen the Sir Donald Trail.jpg (Public Domain)
-- Gray espresso cup with amaretto 1.jpg (CC BY-SA)
-- J. Lee Vause Park dog park.jpg (CC BY-SA)
-See `assets/samples/ATTRIBUTION.md` for full attribution URLs and authors.
+Sample photos were sourced from Wikimedia Commons. See `assets/samples/ATTRIBUTION.md` for full attribution URLs and authors.
