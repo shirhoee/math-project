@@ -1,6 +1,6 @@
 import numpy as np
 
-from mpi_renderer import build_layers, inv3x3, render_mpi
+from src.core.mpi_renderer import build_layers, inv3x3, render_mpi
 
 
 def test_build_layers():

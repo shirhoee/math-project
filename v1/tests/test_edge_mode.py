@@ -1,6 +1,6 @@
 import numpy as np
 
-from math_engine import TransformEngine
+from src.core.math_engine import TransformEngine
 
 
 def test_demoted_point_logic():

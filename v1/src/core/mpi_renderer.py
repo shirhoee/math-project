@@ -1,12 +1,12 @@
+from typing import Any
+
 import numpy as np
-from typing import Tuple, List, Optional, Any
+
+from src.core.depth_estimator import box_filter
+from src.core.math_engine import TransformEngine
 
 
-from depth_estimator import box_filter
-from math_engine import TransformEngine
-
-
-def build_layers(rgb: np.ndarray, disparity: np.ndarray, z_near: float, z_far: float, n_layers: int = 16, bleed_px: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray]:
+def build_layers(rgb: np.ndarray, disparity: np.ndarray, z_near: float, z_far: float, n_layers: int = 16, bleed_px: int | None = None) -> tuple[np.ndarray, np.ndarray]:
     """
     Builds a Multi-Plane Image (MPI) representation.
     rgb: (H, W, 3) float array in [0, 1] or uint8.
@@ -143,7 +143,7 @@ def inv3x3(M: np.ndarray) -> np.ndarray:
     return inv
 
 
-def layer_homographies(K: np.ndarray, R: np.ndarray, t: np.ndarray, z_k: np.ndarray, K_render: Optional[np.ndarray] = None) -> np.ndarray:
+def layer_homographies(K: np.ndarray, R: np.ndarray, t: np.ndarray, z_k: np.ndarray, K_render: np.ndarray | None = None) -> np.ndarray:
     """
     K: (3, 3) intrinsic matrix
     R: (3, 3) rotation matrix
@@ -315,7 +315,7 @@ def parallax_px(z: float, f: float, baseline: float) -> float:
     return baseline * f / z
 
 
-def calibrate_motion(z_near: float, z_far: float, f: float, W: float, yaw_deg: float, target_ratio: float = 0.07, z_pivot: Optional[float] = None) -> float:
+def calibrate_motion(z_near: float, z_far: float, f: float, W: float, yaw_deg: float, target_ratio: float = 0.07, z_pivot: float | None = None) -> float:
     """
     Computes camera baseline t_x needed to achieve a target near-to-far shift ratio.
     Accounts for the pivot rotation and the pose-dependent zoom.
@@ -392,8 +392,8 @@ def render_atlas_mpi(
     max_yaw: float = 12.0,
     max_pitch: float = 8.0,
     sharpen_amount: float = 0.0,
-    z_pivot: Optional[float] = None,
-) -> List[str]:
+    z_pivot: float | None = None,
+) -> list[str]:
     """
     Renders an atlas of frames using the MPI layered renderer in parallel.
     angles: (n_pitch, n_yaw, 2)
@@ -405,7 +405,7 @@ def render_atlas_mpi(
         z_pivot = (np.min(z_k) + np.max(z_k)) / 2.0
 
     # Pre-calculate R and t for each view
-    from math_engine import TransformEngine
+    from src.core.math_engine import TransformEngine
 
     engine = TransformEngine(layers.shape[2], layers.shape[1])
 

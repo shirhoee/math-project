@@ -3,7 +3,7 @@ import ast
 import numpy as np
 import pytest
 
-from math_engine import TransformEngine
+from src.core.math_engine import TransformEngine
 
 
 def test_orthogonality():
@@ -192,7 +192,7 @@ def test_depth_conversion():
 
 
 def test_vectorization_audit():
-    with open("math_engine.py", "r") as f:
+    with open("src/core/math_engine.py", "r") as f:
         tree = ast.parse(f.read())
 
     for node in ast.walk(tree):

@@ -11,10 +11,10 @@ from PIL import Image
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from depth_estimator import DepthEstimator
-from math_engine import TransformEngine
-from mpi_renderer import build_layers, layer_homographies, render_mpi
-from view_atlas import render_atlas
+from src.core.depth_estimator import DepthEstimator
+from src.core.math_engine import TransformEngine
+from src.core.mpi_renderer import build_layers, layer_homographies, render_mpi
+from src.core.view_atlas import render_atlas
 
 
 def laplacian_variance(img):
@@ -147,7 +147,7 @@ def main():
             f"\nConfiguration for {name}: W={W}, H={H}, layers={n_layers}, preset={target_shift_ratio}, frames={n_yaw}x{n_pitch}"
         )
 
-        from view_atlas import orbit_angles
+        from src.core.view_atlas import orbit_angles
 
         angles = orbit_angles(n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch)
 
@@ -175,13 +175,13 @@ def main():
         t_build_mpi = time.time() - t_mpi0
 
         t_mpi_atlas0 = time.time()
-        from mpi_renderer import calibrate_motion, render_atlas_mpi
+        from src.core.mpi_renderer import calibrate_motion, render_atlas_mpi
 
         baseline_x = calibrate_motion(z_near, np.max(z_k), engine.K[0, 0], W, max_yaw, 0.07)
         baseline_y = calibrate_motion(z_near, np.max(z_k), engine.K[1, 1], H, max_pitch, 0.07)
 
         # We also need H_k_center and H_k_max to compute the metrics
-        from mpi_renderer import layer_homographies
+        from src.core.mpi_renderer import layer_homographies
 
         H_k_center = layer_homographies(engine.K, np.eye(3), np.zeros(3), z_k)
         mpi_center = render_mpi(layers, H_k_center)
@@ -251,7 +251,7 @@ def main():
                 parallax_ratio = actual_shift / (W * 0.07)
 
                 # With sharpening
-                from mpi_renderer import unsharp_mask
+                from src.core.mpi_renderer import unsharp_mask
 
                 sharp_center_img = unsharp_mask(center_img, 0.35)
                 sharp_ext_img = unsharp_mask(ext_img, 0.35)

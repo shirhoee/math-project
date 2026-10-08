@@ -52,7 +52,7 @@ queries = [
 import sys
 
 sys.path.insert(0, ".")
-from depth_estimator import DepthEstimator
+from src.core.depth_estimator import DepthEstimator
 
 depth_model = DepthEstimator()
 

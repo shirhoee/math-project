@@ -6,7 +6,7 @@ import numpy as np
 sys.path.insert(0, os.getcwd())
 from PIL import Image
 
-from math_engine import TransformEngine
+from src.core.math_engine import TransformEngine
 
 
 def test_multi_image_smoke():

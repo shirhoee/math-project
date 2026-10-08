@@ -1,6 +1,6 @@
 import numpy as np
 
-from mpi_renderer import calibrate_motion, parallax_px, render_atlas_mpi
+from src.core.mpi_renderer import calibrate_motion, parallax_px, render_atlas_mpi
 
 
 def test_parallax_px():

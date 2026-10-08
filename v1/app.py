@@ -4,22 +4,18 @@ import hashlib
 import io
 import os
 import pickle
-import threading
 
 import numpy as np
 import streamlit as st
-from PIL import Image
-
-from depth_estimator import DepthEstimator
-from math_engine import TransformEngine
-from mpi_renderer import (
-    build_layers,
-    calibrate_motion,
+from typing import Any
+from src.core.depth_estimator import DepthEstimator
+from src.core.math_engine import TransformEngine
+from src.core.mpi_renderer import (
     layer_homographies,
-    render_atlas_mpi,
     render_mpi,
 )
-from view_atlas import depth_colormap, orbit_angles, render_atlas
+from PIL import Image
+from src.core.view_atlas import depth_colormap
 
 st.set_page_config(page_title="3D View Synthesis", layout="wide")
 
@@ -45,11 +41,11 @@ st.markdown(
 
 
 @st.cache_resource
-def get_depth_model(size="Small"):
+def get_depth_model(size: str = "Small") -> Any:
     return DepthEstimator(size=size)
 
 
-def get_hash(img_path, settings_str):
+def get_hash(img_path: str, settings_str: str) -> str:
     with open(img_path, "rb") as f:
         data = f.read()
     h = hashlib.md5(data + settings_str.encode("utf-8")).hexdigest()
@@ -86,242 +82,16 @@ if "selected_image_path" not in st.session_state:
                 except:
                     pass
 
-from typing import Dict, Any
-global_job_results: Dict[Any, Any] = {}
-global_job_status: Dict[Any, Any] = {}
-global_job_progress: Dict[Any, Any] = {}
+from src.pipeline import poll_job_status, submit_render_job
 
 
-def run_build_job(
-    job_id,
-    img_path,
-    renderer,
-    motion_preset_str,
-    z_near,
-    z_far,
-    n_layers,
-    sharpen_amount,
-    is_fast_test,
-):
-    try:
-        global_job_status[job_id] = "Loading image..."
-        global_job_progress[job_id] = 5
-        if not img_path:
-            global_job_status[job_id] = "No image selected."
-            return
-        image = Image.open(img_path).convert("RGB")
-
-        max_dim = 256 if is_fast_test else 512
-        if max(image.width, image.height) > max_dim:
-            ratio = max_dim / float(max(image.width, image.height))
-            new_size = (int(image.width * ratio), int(image.height * ratio))
-            image = image.resize(new_size, Image.Resampling.LANCZOS)
-
-        temp_path = "temp_resized_app.jpg"
-        image.save(temp_path)
-        img_array = np.array(image)
-        H, W, _ = img_array.shape
-
-        preset_ratio = float(motion_preset_str.split("(")[1].split(")")[0])
-        parallax_total = 2 * preset_ratio * W
-        n_yaw = min(41, int(np.ceil(parallax_total / 2.5)) | 1)
-        n_pitch = 3
-        if is_fast_test:
-            n_yaw, n_pitch = 3, 1
-
-        settings_str = f"CodeV2_W{W}_H{H}_Grid{n_yaw}x{n_pitch}_Preset{preset_ratio}_Z{z_near}-{z_far}_L{n_layers}"
-        cache_dir = os.environ.get("CACHE_DIR", "assets/samples/cache")
-        os.makedirs(cache_dir, exist_ok=True)
-        h = get_hash(img_path, settings_str)
-        cache_path = os.path.join(cache_dir, f"{h}.pkl")
-
-        global_job_status[job_id] = "Estimating depth..."
-        global_job_progress[job_id] = 20
-        model = get_depth_model("Small")
-        disparity = model.estimate_depth(temp_path, refine_depth=not is_fast_test)
-
-        fov_deg = 60.0
-        engine = TransformEngine(W, H, fov_deg)
-        Z_map = engine.disparity_to_depth(disparity, z_near, z_far)
-        P = engine.unproject_to_3d(Z_map)
-        z_pivot = 0.8 * z_far + 0.2 * z_near
-
-        parallax_total = 2 * preset_ratio * W
-        n_yaw = min(41, int(np.ceil(parallax_total / 2.5)) | 1)
-        n_pitch = 3
-        max_yaw = 20.0
-        max_pitch = 5.0
-        if is_fast_test:
-            n_yaw, n_pitch = 3, 1
-            max_yaw, max_pitch = 5.0, 0.0
-
-        if renderer == "Layers (MPI)":
-            global_job_status[job_id] = "Building layers..."
-            global_job_progress[job_id] = 50
-            layers, z_k = build_layers(img_array, disparity, z_near, z_far, n_layers)
-
-            global_job_status[job_id] = "Rendering views..."
-            global_job_progress[job_id] = 75
-
-            baseline_x = calibrate_motion(
-                z_near, np.max(z_k), engine.K[0, 0], W, max_yaw, preset_ratio
-            )
-            baseline_y = calibrate_motion(
-                z_near, np.max(z_k), engine.K[1, 1], H, max_pitch, preset_ratio
-            )
-            angles = orbit_angles(
-                n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch
-            )
-
-            frames_b64 = render_atlas_mpi(
-                layers,
-                z_k,
-                engine.K,
-                angles,
-                baseline_x,
-                baseline_y,
-                max_yaw,
-                max_pitch,
-                sharpen_amount,
-                z_pivot,
-            )
-
-            result = {
-                "img_array": img_array,
-                "disparity": disparity,
-                "layers": layers,
-                "z_k": z_k,
-                "frames_b64": frames_b64,
-                "n_yaw": n_yaw,
-                "n_pitch": n_pitch,
-                "max_yaw": max_yaw,
-                "max_pitch": max_pitch,
-                "z_pivot": z_pivot,
-                "H": H,
-                "W": W,
-                "renderer": renderer,
-                "baseline_x": baseline_x,
-                "baseline_y": baseline_y,
-                "cache_key": h,
-                "settings_str": settings_str,
-                "img_path": img_path,
-            }
-            if "upload_" not in img_path and not is_fast_test:
-                with open(cache_path, "wb") as f:
-                    pickle.dump(result, f)
-        else:
-            global_job_status[job_id] = "Rendering views (Point Splatting)..."
-            global_job_progress[job_id] = 50
-            colors = img_array.reshape(-1, 3)
-            angles = orbit_angles(
-                n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch
-            )
-            atlas = render_atlas(
-                P,
-                colors,
-                engine.K,
-                H,
-                W,
-                angles,
-                Z_pivot=z_pivot,
-                edge_tau=0.05,
-                edge_mode="demote",
-                s_max=2,
-                z_near=z_near,
-            )
-
-            frames_b64 = []
-            for p in range(n_pitch):
-                for y in range(n_yaw):
-                    img = Image.fromarray(atlas[p, y])
-                    buf = io.BytesIO()
-                    img.save(buf, format="JPEG", quality=80)
-                    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-                    frames_b64.append(f"data:image/jpeg;base64,{b64}")
-
-            result = {
-                "img_array": img_array,
-                "disparity": disparity,
-                "P": P,
-                "atlas": atlas,
-                "frames_b64": frames_b64,
-                "n_yaw": n_yaw,
-                "n_pitch": n_pitch,
-                "max_yaw": max_yaw,
-                "max_pitch": max_pitch,
-                "z_pivot": z_pivot,
-                "H": H,
-                "W": W,
-                "renderer": renderer,
-            }
-
-        global_job_results[job_id] = result
-        global_job_status[job_id] = None
-    except Exception as e:
-        global_job_status[job_id] = f"Error: {e!s}"
-        global_job_progress[job_id] = 0
-
-
-from streamlit.runtime.scriptrunner import add_script_run_ctx
-
-
-def start_job(img_path, renderer, motion_preset_str, z_near, z_far, n_layers, sharpen_amount):
+def start_job(img_path: str, renderer: str, motion_preset_str: str, z_near: float, z_far: float, n_layers: int, sharpen_amount: float) -> None:
     st.session_state.job_id += 1
     st.session_state.job_result = None
     jid = st.session_state.job_id
-
-    is_fast_test = os.environ.get("FAST_TEST") == "1"
-
-    if img_path and "upload_" not in img_path and renderer == "Layers (MPI)" and not is_fast_test:
-        image = Image.open(img_path)
-        max_dim = 512
-        W, H = image.width, image.height
-        if max(W, H) > max_dim:
-            ratio = max_dim / float(max(W, H))
-            W, H = int(W * ratio), int(H * ratio)
-
-        preset_ratio = float(motion_preset_str.split("(")[1].split(")")[0])
-        parallax_total = 2 * preset_ratio * W
-        n_yaw = min(41, int(np.ceil(parallax_total / 2.5)) | 1)
-        n_pitch = 3
-        settings_str = f"CodeV2_W{W}_H{H}_Grid{n_yaw}x{n_pitch}_Preset{preset_ratio}_Z{z_near}-{z_far}_L{n_layers}"
-        h = get_hash(img_path, settings_str)
-        cache_path = os.path.join(os.environ.get("CACHE_DIR", "assets/samples/cache"), f"{h}.pkl")
-
-        if os.path.exists(cache_path):
-            try:
-                with open(cache_path, "rb") as f:
-                    data = pickle.load(f)
-                data["renderer"] = renderer
-                st.session_state.job_result = data
-                global_job_status[jid] = None
-                global_job_results[jid] = data
-                return
-            except Exception:
-                pass
-
-    global_job_status[jid] = "Starting..."
-    global_job_progress[jid] = 0
-    global_job_results[jid] = None
-
-    t = threading.Thread(
-        target=run_build_job,
-        args=(
-            jid,
-            img_path,
-            renderer,
-            motion_preset_str,
-            z_near,
-            z_far,
-            n_layers,
-            sharpen_amount,
-            is_fast_test,
-        ),
-    )
-    t.daemon = True  # ensure thread doesn't block shutdown
-    add_script_run_ctx(t)
-    t.start()
-
+    cached = submit_render_job(jid, img_path, renderer, motion_preset_str, z_near, z_far, n_layers, sharpen_amount)
+    if cached:
+        st.session_state.job_result = cached
 
 st.title("Interactive 3D View Synthesis")
 st.markdown(
@@ -331,22 +101,23 @@ if st.session_state.selected_image_path:
     st.markdown(f"**Loaded: `{os.path.basename(st.session_state.selected_image_path)}`**")
 
 jid = st.session_state.job_id
-is_running = global_job_status.get(jid) is not None
+is_running = poll_job_status(jid)['status'] is not None
 
 
 @st.fragment(run_every=1 if is_running else None)
-def show_progress():
+def show_progress() -> None:
     jid = st.session_state.job_id
-    if global_job_results.get(jid) is not None and st.session_state.job_result is None:
-        st.session_state.job_result = global_job_results[jid]
+    polled = poll_job_status(jid)
+    if polled['result'] is not None and st.session_state.job_result is None:
+        st.session_state.job_result = polled['result']
         st.rerun()
 
-    status = global_job_status.get(jid)
+    status = polled['status']
     if status is not None:
         if status.startswith("Error"):
             st.error(status)
         else:
-            st.progress(global_job_progress.get(jid, 0), text=status)
+            st.progress(polled['progress'], text=status)
     else:
         # Empty placeholder so it doesn't jump
         st.empty()
@@ -524,7 +295,7 @@ if st.session_state.job_result is not None:
     st.components.v1.html(html_code, height=600)
 
     # Downloads
-    def create_orbit_gif(ext="GIF"):
+    def create_orbit_gif(ext: str = "GIF") -> bytes:
         gif_frames = []
         for t in np.linspace(0, 2 * np.pi, 20):
             p = int((res["n_pitch"] - 1) / 2 + np.sin(t) * (res["n_pitch"] - 1) / 2)
@@ -538,7 +309,7 @@ if st.session_state.job_result is not None:
         )
         return buf.getvalue()
 
-    def create_dolly_zoom_gif(ext="GIF"):
+    def create_dolly_zoom_gif(ext: str = "GIF") -> bytes:
         gif_frames = []
         if res["renderer"] == "Layers (MPI)":
             engine_k = TransformEngine(res["W"], res["H"], 60.0).K
@@ -660,17 +431,17 @@ if st.session_state.job_result is not None:
 st.markdown("---")
 
 
-def on_select_sample(img_path):
+def on_select_sample(img_path: str) -> None:
     st.session_state.previous_image_path = st.session_state.get("selected_image_path")
     st.session_state.selected_image_path = img_path
     start_job(img_path, "Layers (MPI)", "Normal (0.07)", 1.0, 4.0, 16, 0.35)
 
 
-def on_reset_view():
+def on_reset_view() -> None:
     st.session_state.reset_view_toggle = not st.session_state.get("reset_view_toggle", False)
 
 
-def on_prev_sample():
+def on_prev_sample() -> None:
     prev = st.session_state.get("previous_image_path")
     if prev:
         on_select_sample(prev)
@@ -715,3 +486,7 @@ if st.session_state.job_result is None and st.session_state.job_status is None:
     start_job(
         st.session_state.selected_image_path, "Layers (MPI)", "Normal (0.07)", 1.0, 4.0, 16, 0.35
     )
+
+
+
+

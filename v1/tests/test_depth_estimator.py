@@ -1,6 +1,6 @@
 import numpy as np
 
-from depth_estimator import box_filter, guided_filter
+from src.core.depth_estimator import box_filter, guided_filter
 
 
 def test_box_filter_constant():

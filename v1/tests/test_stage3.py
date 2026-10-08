@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pytest
 
-from math_engine import TransformEngine
+from src.core.math_engine import TransformEngine
 
 
 def test_disparity_direction():
@@ -154,15 +154,15 @@ def test_identity_defaults():
 def test_e2e_regression():
     from PIL import Image
 
-    from depth_estimator import DepthEstimator
+    from src.core.depth_estimator import DepthEstimator
 
     img = Image.open("sample.jpg").convert("RGB").resize((100, 100))
     C = np.array(img)
     H, W = 100, 100
 
     estimator = DepthEstimator()
-    img.save("temp_test.jpg")
-    disparity = estimator.estimate_depth("temp_test.jpg")
+    img.save(os.path.join("outputs", "temp_test.jpg"))
+    disparity = estimator.estimate_depth(os.path.join("outputs", "temp_test.jpg"))
 
     engine = TransformEngine(W, H)
     Z = engine.disparity_to_depth(disparity)

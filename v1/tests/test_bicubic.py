@@ -4,7 +4,7 @@ import sys
 import numpy as np
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from mpi_renderer import bicubic_sample, bilinear_sample
+from src.core.mpi_renderer import bicubic_sample, bilinear_sample
 
 
 def test_bicubic():
@@ -37,7 +37,7 @@ def test_bicubic():
     )
 
     # 4. Center frame equals source
-    from mpi_renderer import render_mpi
+    from src.core.mpi_renderer import render_mpi
 
     layers = np.zeros((1, 10, 10, 4), dtype=np.float32)
     layers[0, ..., :3] = np.random.rand(10, 10, 3)

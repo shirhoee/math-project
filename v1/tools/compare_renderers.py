@@ -5,9 +5,9 @@ import numpy as np
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from math_engine import TransformEngine
-from mpi_renderer import build_layers, layer_homographies, render_mpi
-from view_atlas import render_atlas
+from src.core.math_engine import TransformEngine
+from src.core.mpi_renderer import build_layers, layer_homographies, render_mpi
+from src.core.view_atlas import render_atlas
 
 
 def psnr_mae(img1, img2, mask=None):
@@ -71,7 +71,7 @@ def main():
 
     layers, z_k = build_layers(img_array, disparity, z_near, z_far, n_layers=16, bleed_px=0)
 
-    from mpi_renderer import bilinear_sample, inv3x3
+    from src.core.mpi_renderer import bilinear_sample, inv3x3
 
     y, x = np.meshgrid(np.arange(H), np.arange(W), indexing="ij")
     coords = np.stack([x.flatten(), y.flatten(), np.ones_like(x).flatten()], axis=0).astype(

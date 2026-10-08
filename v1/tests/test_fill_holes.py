@@ -1,6 +1,6 @@
 import numpy as np
 
-from math_engine import TransformEngine
+from src.core.math_engine import TransformEngine
 
 
 def fill_holes_old(canvas: np.ndarray, depth_buf: np.ndarray, max_iters: int = 15) -> tuple:
@@ -59,7 +59,7 @@ def test_fill_holes_regression():
 
 
 def test_fill_holes_pyramid_properties():
-    from math_engine import TransformEngine
+    from src.core.math_engine import TransformEngine
 
     engine = TransformEngine(20, 20)
     canvas = np.zeros((20, 20, 3), dtype=np.uint8)

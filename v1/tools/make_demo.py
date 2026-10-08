@@ -8,9 +8,9 @@ from PIL import Image
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from depth_estimator import DepthEstimator
-from math_engine import TransformEngine
-from mpi_renderer import build_layers, layer_homographies, render_mpi, unsharp_mask
+from src.core.depth_estimator import DepthEstimator
+from src.core.math_engine import TransformEngine
+from src.core.mpi_renderer import build_layers, layer_homographies, render_mpi, unsharp_mask
 
 
 def main():
@@ -45,7 +45,7 @@ def main():
         n_yaw = 41
         yaws = np.linspace(-max_yaw, max_yaw, n_yaw)
 
-        from mpi_renderer import calibrate_motion
+        from src.core.mpi_renderer import calibrate_motion
 
         target_ratio = 0.11
         baseline_x = calibrate_motion(

@@ -1,8 +1,9 @@
+from typing import Any
+
 import numpy as np
 import torch
 from PIL import Image
 from transformers import pipeline
-from typing import Tuple, Optional, Dict, Any
 
 
 def box_filter(img: np.ndarray, r: int) -> np.ndarray:
@@ -92,7 +93,7 @@ class DepthEstimator:
     to extract the relative disparity from a 2D image.
     """
 
-    MODELS: Dict[str, str] = {
+    MODELS: dict[str, str] = {
         "Small": "depth-anything/Depth-Anything-V2-Small-hf",
         "Base": "depth-anything/Depth-Anything-V2-Base-hf",
         "Large": "depth-anything/Depth-Anything-V2-Large-hf",

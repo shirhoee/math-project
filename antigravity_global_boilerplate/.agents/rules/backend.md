@@ -19,3 +19,7 @@ description: Apply these guidelines whenever working on the backend, API routes,
 ### 3. File System & Caching
 * **Artifact Management:** NEVER write temporary files (`temp_*.jpg`) to the root directory. Use a dedicated `outputs/` or Python's `tempfile` module.
 * **Pickle Caches:** When caching PyTorch inferences to disk using `pickle`, ensure paths are isolated to `assets/cache` and handle cache invalidation safely.
+
+### 4. Safety & Concurrency
+* **PyTorch & Streamlit Testing:** When writing Streamlit `AppTest` integration tests for PyTorch models, background inference threads MUST be mocked out or disabled to prevent concurrency segmentation faults on Windows.
+* **Variable Scoping:** Always ensure context managers (like `with open()`) use uniquely scoped variable names (e.g., `with open(...) as out_f:`) to prevent accidental variable shadowing of iterators or broader scoped variables.

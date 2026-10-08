@@ -10,13 +10,13 @@ from PIL import Image
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 print("Importing depth_estimator...")
-from depth_estimator import DepthEstimator
+from src.core.depth_estimator import DepthEstimator
 
 print("Importing math_engine...")
-from math_engine import TransformEngine
+from src.core.math_engine import TransformEngine
 
 print("Importing mpi_renderer...")
-from mpi_renderer import build_layers, calibrate_motion, render_atlas_mpi
+from src.core.mpi_renderer import build_layers, calibrate_motion, render_atlas_mpi
 
 
 def get_hash(img_path, settings_str):
@@ -84,7 +84,7 @@ def precompute():
             z_near, np.max(z_k), engine.K[1, 1], H, max_pitch, preset_ratio
         )
 
-        from view_atlas import orbit_angles
+        from src.core.view_atlas import orbit_angles
 
         angles = orbit_angles(n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch)
 

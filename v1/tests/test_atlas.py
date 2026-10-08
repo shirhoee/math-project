@@ -1,7 +1,7 @@
 import numpy as np
 
-from math_engine import TransformEngine
-from view_atlas import depth_colormap, orbit_angles, render_atlas, render_external_view
+from src.core.math_engine import TransformEngine
+from src.core.view_atlas import depth_colormap, orbit_angles, render_atlas, render_external_view
 
 
 def test_orbit_angles():

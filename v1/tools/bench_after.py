@@ -5,8 +5,8 @@ import time
 import numpy as np
 from PIL import Image
 
-from depth_estimator import DepthEstimator
-from math_engine import TransformEngine
+from src.core.depth_estimator import DepthEstimator
+from src.core.math_engine import TransformEngine
 
 
 def benchmark():

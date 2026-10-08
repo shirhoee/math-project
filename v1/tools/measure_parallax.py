@@ -1,8 +1,8 @@
 import numpy as np
 
-from math_engine import TransformEngine
-from mpi_renderer import calibrate_motion
-from view_atlas import orbit_angles
+from src.core.math_engine import TransformEngine
+from src.core.mpi_renderer import calibrate_motion
+from src.core.view_atlas import orbit_angles
 
 
 def build_synthetic_planes(W, H, z_near, z_far, n_layers):
@@ -81,7 +81,6 @@ def run_measurement():
         # to render to numpy array.
         import cv2
 
-        import mpi_renderer
 
         # Center
         R_center = engine.get_rotation_matrix(0, 0, 0)

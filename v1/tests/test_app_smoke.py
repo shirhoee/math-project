@@ -2,11 +2,10 @@ import os
 import time
 
 import numpy as np
+import pytest
 from PIL import Image
 from streamlit.testing.v1 import AppTest
 
-
-import pytest
 
 @pytest.mark.skip(reason="Flaky PyTorch segfault on Windows")
 def test_app_loads():

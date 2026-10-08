@@ -1,6 +1,5 @@
-import numpy as np
-from typing import Tuple, Optional, List, Dict, Any
 
+import numpy as np
 
 
 class TransformEngine:
@@ -86,7 +85,7 @@ class TransformEngine:
         return Rz @ (Ry @ Rx)
 
     def apply_transform(
-        self, point_cloud: np.ndarray, R: np.ndarray, t: Optional[np.ndarray] = None, Z_pivot: Optional[float] = None
+        self, point_cloud: np.ndarray, R: np.ndarray, t: np.ndarray | None = None, Z_pivot: float | None = None
     ) -> np.ndarray:
         """
         Applies linear transformation (pivot-based rotation and translation) to the 3D point cloud.
@@ -120,15 +119,15 @@ class TransformEngine:
         splat_gain: float = 1.0,
         s_max: int = 1,
         stride: int = 1,
-        Z_ref: Optional[float] = None,
+        Z_ref: float | None = None,
         edge_tau: float = 0.05,
-        Z_map_original: Optional[np.ndarray] = None,
+        Z_map_original: np.ndarray | None = None,
         z_near: float = 1.0,
         edge_mode: str = "demote",
     ) -> tuple:
         H, W = self.height, self.width
 
-        edge_flag: Optional[np.ndarray] = None
+        edge_flag: np.ndarray | None = None
         if edge_tau is not None and Z_map_original is not None:
             dZ_dx = np.zeros_like(Z_map_original)
             dZ_dy = np.zeros_like(Z_map_original)
@@ -168,15 +167,15 @@ class TransformEngine:
         splat_gain: float = 1.0,
         s_max: int = 1,
         stride: int = 1,
-        Z_ref: Optional[float] = None,
+        Z_ref: float | None = None,
         edge_tau: float = 0.05,
-        Z_map_original: Optional[np.ndarray] = None,
+        Z_map_original: np.ndarray | None = None,
         z_near: float = 1.0,
         edge_mode: str = "demote",
     ) -> tuple:
         H, W = self.height, self.width
 
-        edge_flag: Optional[np.ndarray] = None
+        edge_flag: np.ndarray | None = None
         if edge_tau is not None and Z_map_original is not None:
             dZ_dx = np.zeros_like(Z_map_original)
             dZ_dy = np.zeros_like(Z_map_original)
@@ -214,8 +213,8 @@ class TransformEngine:
         splat_gain: float,
         s_max: int,
         stride: int,
-        Z_ref: Optional[float],
-        edge_flag: Optional[np.ndarray] = None,
+        Z_ref: float | None,
+        edge_flag: np.ndarray | None = None,
     ) -> tuple:
         """
         Vectorized sub-routine for Z-buffering and 2-Pass Fill-Only Adaptive Splatting.

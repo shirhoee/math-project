@@ -5,7 +5,7 @@ sys.path.insert(0, os.getcwd())
 import numpy as np
 from PIL import Image
 
-from math_engine import TransformEngine
+from src.core.math_engine import TransformEngine
 
 
 def get_max_horizontal_run(mask):
