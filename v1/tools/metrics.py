@@ -1,14 +1,15 @@
 import numpy as np
 from PIL import Image
-from math_engine import TransformEngine
-from depth_estimator import DepthEstimator
 
-img = Image.open('sample.jpg').convert('RGB')
+from depth_estimator import DepthEstimator
+from math_engine import TransformEngine
+
+img = Image.open("sample.jpg").convert("RGB")
 img_array = np.array(img)
 H, W, _ = img_array.shape
 
 estimator = DepthEstimator()
-disparity = estimator.estimate_depth('sample.jpg')
+disparity = estimator.estimate_depth("sample.jpg")
 
 engine = TransformEngine(W, H, fov_deg=60.0)
 Z_map = engine.disparity_to_depth(disparity, 1.0, 4.0)
@@ -25,16 +26,18 @@ print(f"Splat fraction: {splat_fraction:.2f}%")
 for angle in [10, 15, 20, 25]:
     R = engine.get_rotation_matrix(np.radians(angle), np.radians(angle), 0)
     P_new = engine.apply_transform(P, R, np.zeros(3), Z_pivot=Z_ref)
-    
+
     # Just project without splat/edge to get pure holes
     c, d = engine.project_to_2d(P_new, colors, splat_gain=0, s_max=0, edge_tau=None)
     holes_before = np.sum(np.isinf(d)) / (H * W) * 100
-    
+
     # Fill
     c_f, d_f = engine.fill_holes(c, d, max_iters=40)
     holes_after = np.sum(np.isinf(d_f)) / (H * W) * 100
-    
-    print(f"Angle {angle} deg: Holes before = {holes_before:.2f}%, Holes after = {holes_after:.2f}%")
+
+    print(
+        f"Angle {angle} deg: Holes before = {holes_before:.2f}%, Holes after = {holes_after:.2f}%"
+    )
 
 # Edge mask stats
 dZ_dx = np.zeros_like(Z_map)

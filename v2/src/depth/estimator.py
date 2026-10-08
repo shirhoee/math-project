@@ -71,7 +71,8 @@ class DepthEstimator:
         self.model_name = "depth-anything/Depth-Anything-V2-Small-hf"
         self.device = 0 if torch.cuda.is_available() else -1
         self.pipe = None
-        self.cache_dir = "cache"
+        from pathlib import Path
+        self.cache_dir = str(Path(__file__).resolve().parent.parent.parent / "cache")
         os.makedirs(self.cache_dir, exist_ok=True)
         
     def load_model(self):

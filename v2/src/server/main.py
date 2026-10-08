@@ -13,6 +13,10 @@ from src.depth.estimator import DepthEstimator
 from src.mesh.builder import build_mesh
 from src.geometry.camera import intrinsics_from_fov
 
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
 app = FastAPI()
 
 app.add_middleware(
@@ -22,23 +26,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-os.makedirs("v2/outputs", exist_ok=True)
-os.makedirs("v2/assets/samples", exist_ok=True)
+os.makedirs(BASE_DIR / "outputs", exist_ok=True)
+os.makedirs(BASE_DIR / "assets/samples", exist_ok=True)
 
 # Mount static files
-app.mount("/web", StaticFiles(directory="v2/web"), name="web")
-app.mount("/samples", StaticFiles(directory="v2/assets/samples"), name="samples")
+app.mount("/web", StaticFiles(directory=str(BASE_DIR / "web")), name="web")
+app.mount("/samples", StaticFiles(directory=str(BASE_DIR / "assets/samples")), name="samples")
 
 depth_estimator = DepthEstimator.get_instance()
 
 @app.get("/")
 def read_root():
-    return FileResponse("v2/web/index.html")
+    return FileResponse(str(BASE_DIR / "web/index.html"))
 
 @app.get("/samples_list")
 def get_samples():
     samples = []
-    for f in os.listdir("v2/assets/samples"):
+    for f in os.listdir(BASE_DIR / "assets/samples"):
         if f.endswith((".jpg", ".png", ".jpeg")):
             samples.append({"name": f, "url": f"/samples/{f}"})
     return samples
@@ -53,8 +57,8 @@ async def process_image(file: UploadFile = File(None), sample_name: str = Form(N
             image_data = await file.read()
             image = Image.open(BytesIO(image_data)).convert("RGB")
         elif sample_name is not None:
-            path = os.path.join("v2/assets/samples", sample_name)
-            image = Image.open(path).convert("RGB")
+            path = BASE_DIR / "assets/samples" / sample_name
+            image = Image.open(str(path)).convert("RGB")
         else:
             return JSONResponse({"error": "No image provided"}, status_code=400)
             

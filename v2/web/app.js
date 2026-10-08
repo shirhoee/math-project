@@ -77,7 +77,7 @@ function displayError(msg) {
 function displaySuccess(msg, timeMs) {
     const box = document.getElementById('status-box');
     box.className = 'success';
-    box.innerText = msg +  (ms);
+    box.innerText = msg + " (" + timeMs + "ms)";
 }
 
 function setLoading(isLoading) {
@@ -143,15 +143,15 @@ function buildThreeMesh(data) {
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeVertexNormals();
 
-    const image = new Image();
-    image.src = data.texture;
-    const texture = new THREE.Texture(image);
-    image.onload = () => texture.needsUpdate = true;
-    texture.colorSpace = THREE.SRGBColorSpace; // Optional in older versions, using default
-
     const material = new THREE.MeshBasicMaterial({ 
-        map: texture,
         side: THREE.DoubleSide
+    });
+
+    const loader = new THREE.TextureLoader();
+    loader.load(data.texture, function(loadedTexture) {
+        loadedTexture.colorSpace = THREE.SRGBColorSpace;
+        material.map = loadedTexture;
+        material.needsUpdate = true;
     });
 
     mesh = new THREE.Mesh(geometry, material);

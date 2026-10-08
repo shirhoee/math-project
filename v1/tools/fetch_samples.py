@@ -1,18 +1,22 @@
-import urllib.request
-import urllib.parse
 import json
-import ssl
 import os
-from PIL import Image
+import ssl
+import urllib.parse
+import urllib.request
+
 import numpy as np
+from PIL import Image
 
 # Create directories
 os.makedirs("assets/samples", exist_ok=True)
 ssl._create_default_https_context = ssl._create_unverified_context
 
+
 def get_image_info(title):
     url = f"https://commons.wikimedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url|extmetadata&titles={urllib.parse.quote(title)}"
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    )
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             data = json.loads(response.read().decode())
@@ -25,10 +29,16 @@ def get_image_info(title):
                     author = meta.get("Artist", {}).get("value", "Unknown")
                     license = meta.get("LicenseShortName", {}).get("value", "Unknown")
                     descurl = info.get("descriptionurl", "")
-                    return {"url": url, "source_page": descurl, "author": author, "license": license}
+                    return {
+                        "url": url,
+                        "source_page": descurl,
+                        "author": author,
+                        "license": license,
+                    }
     except Exception as e:
         print(f"Error getting info for {title}: {e}")
     return None
+
 
 queries = [
     "File:Living_room_(4102748829).jpg",
@@ -36,10 +46,11 @@ queries = [
     "File:Wooden_and_bamboo_facades_of_dwellings_with_sudare_in_a_cobbled_street_of_Gion,_perspective_effect_with_vanishing_point,_Kyoto,_Japan.jpg",
     "File:Cheops_Mountain_seen_the_Sir_Donald_Trail.jpg",
     "File:Gray_espresso_cup_with_amaretto_1.jpg",
-    "File:J._Lee_Vause_Park_dog_park.jpg"
+    "File:J._Lee_Vause_Park_dog_park.jpg",
 ]
 
 import sys
+
 sys.path.insert(0, ".")
 from depth_estimator import DepthEstimator
 
@@ -57,10 +68,10 @@ for q in queries:
         img_path = f"assets/samples/01_{name}.jpg"
         print(f"Downloading {res['url']} to {img_path}...")
         try:
-            req = urllib.request.Request(res['url'], headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=20) as response, open(img_path, 'wb') as out:
+            req = urllib.request.Request(res["url"], headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=20) as response, open(img_path, "wb") as out:
                 out.write(response.read())
-            
+
             # resize
             with Image.open(img_path) as img:
                 img = img.convert("RGB")
@@ -69,7 +80,7 @@ for q in queries:
                     new_size = (1600, int(img.height * ratio))
                     img = img.resize(new_size, Image.Resampling.LANCZOS)
                 img.save(img_path, "JPEG", quality=92)
-                
+
             # Check depth contrast
             disparity = depth_model.estimate_depth(img_path)
             d_max = disparity.max()
@@ -79,12 +90,12 @@ for q in queries:
             p5 = np.percentile(disparity, 5)
             contrast = float(p95 - p5)
             print(f"Image {name} depth contrast: {contrast:.3f}")
-            
+
             if contrast < 0.25:
                 print(f"Rejecting {name} due to low contrast.")
                 os.remove(img_path)
                 continue
-            
+
             res["name"] = name
             res["local_path"] = img_path
             res["contrast"] = contrast
@@ -107,6 +118,8 @@ with open("assets/samples/sources.json", "w", encoding="utf-8") as f:
 with open("assets/samples/ATTRIBUTION.md", "w", encoding="utf-8") as f:
     f.write("# Photo credits\n\n")
     for r in results:
-        f.write(f"- **{r['name']}**: [{r['source_page']}]({r['source_page']}) by {r['author']}, License: {r['license']}\n")
+        f.write(
+            f"- **{r['name']}**: [{r['source_page']}]({r['source_page']}) by {r['author']}, License: {r['license']}\n"
+        )
 
 print(f"Successfully downloaded {len(results)} images.")
