@@ -1,4 +1,3 @@
-
 import numpy as np
 
 
@@ -85,7 +84,11 @@ class TransformEngine:
         return Rz @ (Ry @ Rx)
 
     def apply_transform(
-        self, point_cloud: np.ndarray, R: np.ndarray, t: np.ndarray | None = None, Z_pivot: float | None = None
+        self,
+        point_cloud: np.ndarray,
+        R: np.ndarray,
+        t: np.ndarray | None = None,
+        Z_pivot: float | None = None,
     ) -> np.ndarray:
         """
         Applies linear transformation (pivot-based rotation and translation) to the 3D point cloud.

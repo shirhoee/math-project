@@ -1,7 +1,5 @@
-import base64
 import glob
 import hashlib
-import io
 import os
 import pickle
 import threading
@@ -12,24 +10,28 @@ from PIL import Image
 
 from src.core.depth_estimator import get_depth_model
 from src.core.math_engine import TransformEngine
-from src.core.mpi_renderer import build_layers, calibrate_motion, render_atlas_mpi
-from src.core.view_atlas import orbit_angles, render_atlas
+from src.core.renderers import MPIRenderer, PointSplatRenderer
 
 try:
     from streamlit.runtime.scriptrunner import add_script_run_ctx as _add_script_run_ctx
+
     def add_script_run_ctx(t: threading.Thread) -> threading.Thread:
         return _add_script_run_ctx(t)
 except ImportError:
+
     def add_script_run_ctx(t: threading.Thread) -> threading.Thread:
         return t
+
 
 global_job_results: dict[Any, Any] = {}
 global_job_status: dict[Any, Any] = {}
 global_job_progress: dict[Any, Any] = {}
 
+
 def get_hash(img_path: str, settings_str: str) -> str:
     s = f"{img_path}_{settings_str}"
     return hashlib.md5(s.encode("utf-8")).hexdigest()[:12]
+
 
 def run_build_job(
     job_id: Any,
@@ -81,8 +83,6 @@ def run_build_job(
 
         fov_deg = 60.0
         engine = TransformEngine(W, H, fov_deg)
-        Z_map = engine.disparity_to_depth(disparity, z_near, z_far)
-        P = engine.unproject_to_3d(Z_map)
         z_pivot = 0.8 * z_far + 0.2 * z_near
 
         parallax_total = 2 * preset_ratio * W
@@ -94,111 +94,44 @@ def run_build_job(
             n_yaw, n_pitch = 3, 1
             max_yaw, max_pitch = 5.0, 0.0
 
-        if renderer == "Layers (MPI)":
-            global_job_status[job_id] = "Building layers..."
-            global_job_progress[job_id] = 50
-            layers, z_k = build_layers(img_array, disparity, z_near, z_far, n_layers)
+        def status_callback(msg: str, prog: int) -> None:
+            global_job_status[job_id] = msg
+            global_job_progress[job_id] = prog
 
-            global_job_status[job_id] = "Rendering views..."
-            global_job_progress[job_id] = 75
+        renderer_impl = MPIRenderer() if renderer == "Layers (MPI)" else PointSplatRenderer()
 
-            baseline_x = calibrate_motion(
-                z_near, np.max(z_k), engine.K[0, 0], W, max_yaw, preset_ratio
-            )
-            baseline_y = calibrate_motion(
-                z_near, np.max(z_k), engine.K[1, 1], H, max_pitch, preset_ratio
-            )
-            angles = orbit_angles(
-                n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch
-            )
+        result = renderer_impl.render(
+            img_array=img_array,
+            disparity=disparity,
+            engine=engine,
+            z_near=z_near,
+            z_far=z_far,
+            z_pivot=z_pivot,
+            n_layers=n_layers,
+            preset_ratio=preset_ratio,
+            max_yaw=max_yaw,
+            max_pitch=max_pitch,
+            n_yaw=n_yaw,
+            n_pitch=n_pitch,
+            sharpen_amount=sharpen_amount,
+            status_callback=status_callback,
+        )
 
-            frames_b64 = render_atlas_mpi(
-                layers,
-                z_k,
-                engine.K,
-                angles,
-                baseline_x,
-                baseline_y,
-                max_yaw,
-                max_pitch,
-                sharpen_amount,
-                z_pivot,
-            )
+        if "upload_" not in img_path and not is_fast_test:
+            result["cache_key"] = h
+            result["settings_str"] = settings_str
+            result["img_path"] = img_path
+            with open(cache_path, "wb") as f:
+                import pickle
 
-            result = {
-                "img_array": img_array,
-                "disparity": disparity,
-                "layers": layers,
-                "z_k": z_k,
-                "frames_b64": frames_b64,
-                "n_yaw": n_yaw,
-                "n_pitch": n_pitch,
-                "max_yaw": max_yaw,
-                "max_pitch": max_pitch,
-                "z_pivot": z_pivot,
-                "H": H,
-                "W": W,
-                "renderer": renderer,
-                "baseline_x": baseline_x,
-                "baseline_y": baseline_y,
-                "cache_key": h,
-                "settings_str": settings_str,
-                "img_path": img_path,
-            }
-            if "upload_" not in img_path and not is_fast_test:
-                with open(cache_path, "wb") as f:
-                    pickle.dump(result, f)
-        else:
-            global_job_status[job_id] = "Rendering views (Point Splatting)..."
-            global_job_progress[job_id] = 50
-            colors = img_array.reshape(-1, 3)
-            angles = orbit_angles(
-                n_yaw=n_yaw, n_pitch=n_pitch, max_yaw=max_yaw, max_pitch=max_pitch
-            )
-            atlas = render_atlas(
-                P,
-                colors,
-                engine.K,
-                H,
-                W,
-                angles,
-                Z_pivot=z_pivot,
-                edge_tau=0.05,
-                edge_mode="demote",
-                s_max=2,
-                z_near=z_near,
-            )
-
-            frames_b64 = []
-            for p in range(n_pitch):
-                for y in range(n_yaw):
-                    img = Image.fromarray(atlas[p, y])
-                    buf = io.BytesIO()
-                    img.save(buf, format="JPEG", quality=80)
-                    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-                    frames_b64.append(f"data:image/jpeg;base64,{b64}")
-
-            result = {
-                "img_array": img_array,
-                "disparity": disparity,
-                "P": P,
-                "atlas": atlas,
-                "frames_b64": frames_b64,
-                "n_yaw": n_yaw,
-                "n_pitch": n_pitch,
-                "max_yaw": max_yaw,
-                "max_pitch": max_pitch,
-                "z_pivot": z_pivot,
-                "H": H,
-                "W": W,
-                "renderer": renderer,
-            }
+                pickle.dump(result, f)
 
         global_job_results[job_id] = result
         global_job_status[job_id] = None
     except Exception as e:
         global_job_status[job_id] = f"Error: {e!s}"
         global_job_progress[job_id] = 0
+
 
 def submit_render_job(
     job_id: Any,
@@ -236,6 +169,7 @@ def submit_render_job(
                 global_job_status[job_id] = None
                 global_job_results[job_id] = data
                 from typing import cast
+
                 return cast(dict[Any, Any], data)
             except Exception:
                 pass
@@ -259,15 +193,18 @@ def submit_render_job(
     t.start()
     return None
 
+
 def poll_job_status(job_id: Any) -> dict[str, Any]:
     return {
         "status": global_job_status.get(job_id),
         "progress": global_job_progress.get(job_id, 0),
-        "result": global_job_results.get(job_id)
+        "result": global_job_results.get(job_id),
     }
+
 
 def get_job_result(job_id: Any) -> dict[Any, Any] | None:
     return global_job_results.get(job_id)
+
 
 def cleanup_cache(cache_dir: str = "outputs/cache") -> None:
     if os.path.exists(cache_dir):

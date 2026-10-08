@@ -6,7 +6,14 @@ from src.core.depth_estimator import box_filter
 from src.core.math_engine import TransformEngine
 
 
-def build_layers(rgb: np.ndarray, disparity: np.ndarray, z_near: float, z_far: float, n_layers: int = 16, bleed_px: int | None = None) -> tuple[np.ndarray, np.ndarray]:
+def build_layers(
+    rgb: np.ndarray,
+    disparity: np.ndarray,
+    z_near: float,
+    z_far: float,
+    n_layers: int = 16,
+    bleed_px: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Builds a Multi-Plane Image (MPI) representation.
     rgb: (H, W, 3) float array in [0, 1] or uint8.
@@ -143,7 +150,9 @@ def inv3x3(M: np.ndarray) -> np.ndarray:
     return inv
 
 
-def layer_homographies(K: np.ndarray, R: np.ndarray, t: np.ndarray, z_k: np.ndarray, K_render: np.ndarray | None = None) -> np.ndarray:
+def layer_homographies(
+    K: np.ndarray, R: np.ndarray, t: np.ndarray, z_k: np.ndarray, K_render: np.ndarray | None = None
+) -> np.ndarray:
     """
     K: (3, 3) intrinsic matrix
     R: (3, 3) rotation matrix
@@ -315,7 +324,15 @@ def parallax_px(z: float, f: float, baseline: float) -> float:
     return baseline * f / z
 
 
-def calibrate_motion(z_near: float, z_far: float, f: float, W: float, yaw_deg: float, target_ratio: float = 0.07, z_pivot: float | None = None) -> float:
+def calibrate_motion(
+    z_near: float,
+    z_far: float,
+    f: float,
+    W: float,
+    yaw_deg: float,
+    target_ratio: float = 0.07,
+    z_pivot: float | None = None,
+) -> float:
     """
     Computes camera baseline t_x needed to achieve a target near-to-far shift ratio.
     Accounts for the pivot rotation and the pose-dependent zoom.
@@ -371,7 +388,13 @@ def unsharp_mask(img: np.ndarray, amount: float = 0.35) -> np.ndarray:
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
-def _render_single_frame(layers: np.ndarray, H_k: np.ndarray, quality: int = 80, sharpen_amount: float = 0.0, downscale: float = 1.0) -> str:
+def _render_single_frame(
+    layers: np.ndarray,
+    H_k: np.ndarray,
+    quality: int = 80,
+    sharpen_amount: float = 0.0,
+    downscale: float = 1.0,
+) -> str:
     frame = render_mpi(layers, H_k, downscale)
     if sharpen_amount > 0:
         frame = unsharp_mask(frame, sharpen_amount)

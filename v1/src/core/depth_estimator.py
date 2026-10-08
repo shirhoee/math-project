@@ -66,7 +66,7 @@ def guided_filter(I: np.ndarray, p: np.ndarray, r: int, eps: float = 1e-3) -> np
     p: Filtering input (disparity map) (H, W)
     r: Radius of the filter
     eps: Regularization term
-    
+
     Returns: np.ndarray shape (H, W) dtype float32
     """
     mean_I = box_filter(I, r)
@@ -98,7 +98,7 @@ class DepthEstimator:
         "Base": "depth-anything/Depth-Anything-V2-Base-hf",
         "Large": "depth-anything/Depth-Anything-V2-Large-hf",
     }
-    
+
     device: Any
     pipe: Any
 
@@ -119,12 +119,16 @@ class DepthEstimator:
         print("Model loaded successfully.")
 
     def estimate_depth(
-        self, image_path: str, max_resolution: int = 1022, refine_depth: bool = True, gamma: float = 1.0
+        self,
+        image_path: str,
+        max_resolution: int = 1022,
+        refine_depth: bool = True,
+        gamma: float = 1.0,
     ) -> np.ndarray:
         """
         Extracts the disparity map from an image, applies percentile normalization,
         and optionally refines it with a guided filter.
-        
+
         Returns: np.ndarray shape (H, W) dtype float32
         """
         image = Image.open(image_path).convert("RGB")
