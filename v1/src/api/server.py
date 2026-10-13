@@ -4,16 +4,26 @@ import uuid
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from src.api.models import JobResponse, ResultResponse, StatusResponse
 from src.pipeline import get_job_result, poll_job_status, submit_render_job
 
 app = FastAPI(title="3D View Synthesis API")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.post("/api/v1/render", response_model=JobResponse)
-async def render_image(
-    file: UploadFile = File(...),
+def render_image(
+    file: UploadFile = File(...),  # noqa: B008
     renderer: str = Form("Layers (MPI)"),
     motion_preset_str: str = Form("Normal (0.07)"),
     z_near: float = Form(1.0),
@@ -47,6 +57,11 @@ def clean_result(result: Any) -> Any:
         return result
     cleaned = {}
     for k, v in result.items():
+        if k in ("layers", "P", "atlas"):
+            # Avoid serializing massive multi-megabyte numpy float arrays directly into JSON
+            if hasattr(v, "shape"):
+                cleaned[f"{k}_shape"] = list(v.shape)
+            continue
         if hasattr(v, "tolist"):
             cleaned[k] = v.tolist()
         else:
@@ -68,6 +83,54 @@ def get_result(job_id: str) -> Any:
     if result is None:
         raise HTTPException(status_code=404, detail="Job result not found or not finished.")
 
-    # We remove numpy arrays before returning JSON, or we can just let Pydantic try to serialize them.
-    # FastAPI/Pydantic cannot natively serialize numpy arrays, so we must clean them.
     return clean_result(result)
+
+
+@app.get("/api/v1/samples")
+def get_samples() -> list[dict[str, str]]:
+    samples_dir = "assets/samples"
+    if not os.path.exists(samples_dir):
+        # Fallback if working dir is not v1
+        samples_dir = "v1/assets/samples"
+    
+    if not os.path.exists(samples_dir):
+        return []
+
+    valid_exts = {".jpg", ".jpeg", ".png"}
+    samples = []
+    for fname in sorted(os.listdir(samples_dir)):
+        ext = os.path.splitext(fname)[1].lower()
+        if ext in valid_exts and not fname.startswith("upload_") and not fname.startswith("temp_"):
+            samples.append({
+                "id": os.path.splitext(fname)[0],
+                "name": fname.replace("_", " ").replace(".jpg", "").title(),
+                "filename": fname,
+                "url": f"/api/v1/samples/{fname}",
+            })
+    return samples
+
+
+@app.get("/api/v1/samples/{filename}")
+def get_sample_file(filename: str) -> Any:
+    # Security: prevent directory traversal
+    base_name = os.path.basename(filename)
+    for candidate in ["assets/samples", "v1/assets/samples"]:
+        path = os.path.join(candidate, base_name)
+        if os.path.exists(path):
+            return FileResponse(path)
+    raise HTTPException(status_code=404, detail="Sample not found")
+
+
+# Mount static frontend build (must be after /api routes)
+base_api_dir = os.path.dirname(os.path.abspath(__file__))
+possible_dist = os.path.normpath(os.path.join(base_api_dir, "../../frontend/dist"))
+
+for static_cand in [possible_dist, "frontend/dist", "v1/frontend/dist"]:
+    if os.path.exists(static_cand) and os.path.exists(os.path.join(static_cand, "index.html")):
+        from fastapi.staticfiles import StaticFiles
+
+        app.mount("/", StaticFiles(directory=static_cand, html=True), name="frontend")
+        break
+
+
+

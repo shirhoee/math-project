@@ -1,6 +1,10 @@
 import os
 import io
 import time
+
+os.environ["FAST_TEST"] = "1"
+os.environ["CELERY_ALWAYS_EAGER"] = "1"
+
 from fastapi.testclient import TestClient
 from src.api.server import app
 from PIL import Image
@@ -10,6 +14,7 @@ client = TestClient(app)
 
 def test_render_workflow():
     os.environ["FAST_TEST"] = "1"
+    os.environ["CELERY_ALWAYS_EAGER"] = "1"
     
     # Create dummy image
     img = np.zeros((10, 10, 3), dtype=np.uint8)

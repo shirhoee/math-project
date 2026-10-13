@@ -10,13 +10,15 @@
 * **Progressive Disclosure:** Context is our most precious resource. Do not load unnecessary files. Rely on domain-specific rules only when actively working in that domain.
 
 ## 2. Tech Stack & Architecture
-* **Frontend:** Streamlit (v1 app)
-* **Backend:** Python 3, PyTorch (HuggingFace Transformers), OpenCV, NumPy
-* **Database & ORM:** N/A (Filesystem/Pickle based caching)
-* **Testing & Linting:** pytest, mypy, black/ruff
+* **Frontend:** React, Vite, Tailwind CSS, HTML5 Canvas, Lucide Icons, KaTeX (`v1/frontend/`)
+* **Backend:** Python 3, FastAPI, Uvicorn, PyTorch (HuggingFace Transformers), OpenCV, NumPy, Celery (`v1/src/`)
+* **Database & ORM:** N/A (Filesystem / Redis / Disk caching)
+* **Testing & Linting:** pytest, mypy, ruff, ESLint / TypeScript
 
 ### Commands
-* **Run App:** `streamlit run v1/app.py`
+* **Run Backend & Serve UI:** `uvicorn src.api.server:app --app-dir v1 --port 8000 --reload`
+* **Run Frontend Dev (HMR):** `npm --prefix v1/frontend run dev`
+* **Build Frontend:** `npm --prefix v1/frontend run build`
 * **Run Tests:** `pytest v1/tests/`
 * **Static Analysis:** `mypy v1/` and `ruff check v1/`
 

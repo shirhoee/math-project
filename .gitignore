@@ -1,0 +1,22 @@
+# Runtime outputs & caches
+outputs/
+temp*.jpg
+dummy.jpg
+
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+
+# Environments
+venv/
+.venv/
+
+# User uploads in samples
+v1/assets/samples/upload_*

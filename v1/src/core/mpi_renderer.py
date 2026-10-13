@@ -39,10 +39,14 @@ def build_layers(
 
     engine = TransformEngine(W, H)
 
+    inv_z_near = 1.0 / z_near
+    inv_z_far = 1.0 / z_far
+
     for k in range(L):
-        # depths Z_k = z_near + (1 - c_k)(z_far - z_near)
+        # Disparity-spaced depths ensure uniform parallax steps across all layers
         c_k = (k + 0.5) / L
-        z_k[k] = z_near + (1.0 - c_k) * (z_far - z_near)
+        inv_z = inv_z_far + c_k * (inv_z_near - inv_z_far)
+        z_k[k] = 1.0 / inv_z
 
         w_k = np.clip(1.0 - np.abs(disparity - c_k) * L, 0.0, 1.0)
         layers[k, ..., :3] = rgb * w_k[..., None]
@@ -100,15 +104,8 @@ def build_layers(
 
         if k == 0:
             extension_mask = ~valid_mask
-        else:
-            # Dilate the current layer's alpha mask to find the bleed area
-            layer_valid = layer_a > 1e-4
-            dilated = box_filter(layer_valid.astype(np.float32), bleed_px) > 0
-            extension_mask = dilated & (~valid_mask)
-
-        # Apply extension to the current layer
-        layers[k, extension_mask, :3] = filled_rgb[extension_mask]
-        layers[k, extension_mask, 3] = 1.0
+            layers[k, extension_mask, :3] = filled_rgb[extension_mask]
+            layers[k, extension_mask, 3] = 1.0
 
         composite_RGB = bg_rgb
         composite_A = bg_a
@@ -272,38 +269,43 @@ def render_mpi(layers: np.ndarray, H_k: np.ndarray, downscale: float = 1.0) -> n
     H_inv_k = inv3x3(H_k)
     out_rgb = np.zeros((out_H, out_W, 3), dtype=np.float32)
 
+    import cv2
     for k in range(L):
         H_inv = H_inv_k[k]
 
         src_coords = H_inv @ coords
         src_w = src_coords[2]
-        src_u = (src_coords[0] / src_w).reshape(out_H, out_W)
-        src_v = (src_coords[1] / src_w).reshape(out_H, out_W)
+        src_u = (src_coords[0] / src_w).reshape(out_H, out_W).astype(np.float32)
+        src_v = (src_coords[1] / src_w).reshape(out_H, out_W).astype(np.float32)
 
-        # Pass 1: bilinear on alpha only
-        layer_alpha = layers[k, ..., 3:4]
-        sampled_alpha = bilinear_sample(layer_alpha, src_u, src_v)[..., 0]
-
-        # Pass 2: bicubic RGBA only where alpha > 1e-3
-        valid = sampled_alpha > 1e-3
-        if np.any(valid):
-            u_valid = src_u[valid]
-            v_valid = src_v[valid]
-            sampled_rgba = bicubic_sample(layers[k], u_valid, v_valid)
-
-            # Clamp so that 0 <= RGB <= A <= 1
-            A_valid = np.clip(sampled_rgba[..., 3], 0.0, 1.0)
-            RGB_valid = np.clip(sampled_rgba[..., :3], 0.0, A_valid[..., None])
-
-            src_rgb = np.zeros((out_H, out_W, 3), dtype=np.float32)
-            src_a = np.zeros((out_H, out_W, 1), dtype=np.float32)
-
-            src_rgb[valid] = RGB_valid
-            src_a[valid, 0] = A_valid
-
+        try:
+            warped = cv2.remap(layers[k], src_u, src_v, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+            src_rgb = warped[..., :3]
+            src_a = np.clip(warped[..., 3:4], 0.0, 1.0)
             out_rgb = src_rgb + (1.0 - src_a) * out_rgb
+        except Exception:
+            # Fallback to pure numpy sampler if cv2 fails
+            layer_alpha = layers[k, ..., 3:4]
+            sampled_alpha = bilinear_sample(layer_alpha, src_u, src_v)[..., 0]
+            valid = sampled_alpha > 1e-3
+            if np.any(valid):
+                u_valid = src_u[valid]
+                v_valid = src_v[valid]
+                sampled_rgba = bicubic_sample(layers[k], u_valid, v_valid)
+
+                A_valid = np.clip(sampled_rgba[..., 3], 0.0, 1.0)
+                RGB_valid = np.clip(sampled_rgba[..., :3], 0.0, A_valid[..., None])
+
+                src_rgb = np.zeros((out_H, out_W, 3), dtype=np.float32)
+                src_a = np.zeros((out_H, out_W, 1), dtype=np.float32)
+
+                src_rgb[valid] = RGB_valid
+                src_a[valid, 0] = A_valid
+
+                out_rgb = src_rgb + (1.0 - src_a) * out_rgb
 
     return np.clip(out_rgb * 255.0, 0, 255).astype(np.uint8)
+
 
 
 import base64
@@ -464,7 +466,8 @@ def render_atlas_mpi(
         margin_max = max(
             shift_x_px_max / (layers.shape[2] / 2.0), shift_y_px_max / (layers.shape[1] / 2.0)
         )
-        zoom = min(1.05, 1.0 + margin_max)
+        # Clamp zoom to strictly preserve field of view without aggressive cropping
+        zoom = min(1.015, 1.0 + margin_max * 0.05)
 
         for p in range(n_pitch):
             for y in range(n_yaw):
@@ -477,7 +480,8 @@ def render_atlas_mpi(
                 t_extra = np.array([t_x, t_y, 0.0], dtype=np.float32)
                 R = engine.get_rotation_matrix(np.radians(pitch_deg), np.radians(yaw_deg), 0.0)
 
-                t = c - R @ c + t_extra
+                # Anchored rotation around focal subject with gentle parallax translation
+                t = c - R @ c + 0.2 * t_extra
 
                 K_render = K.copy()
                 K_render[0, 0] *= zoom

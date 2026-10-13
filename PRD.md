@@ -1,3 +1,6 @@
+> [!WARNING]
+> ONLY V1: We are not working on v2 from now. All development is strictly restricted to v1.
+
 # Refactoring PRD: Stabilization (v1 Codebase)
 
 ## Overview
@@ -28,3 +31,19 @@ This PRD outlines the stabilization strategy exclusively for the `v1` codebase. 
 - **Web API Exposure (Headless Mode)**:
   - Once the Streamlit UI is decoupled, expose the `mpi_renderer` pipeline via a lightweight REST API (e.g., FastAPI).
   - This allows the `v1` engine to act as a standalone microservice that accepts an image and returns precomputed 3D views, enabling future frontends to consume the data without relying on Streamlit.
+
+
+### Phase 5: Robust Async Task Queue (Celery/Redis)
+*Productionizing the backend by replacing raw threading with a distributed task queue.*
+- **Celery Integration**: Extract rendering pipeline into Celery tasks backed by Redis with graceful local in-memory fallback.
+- **State Management**: Refactor status polling to use Celery AsyncResult instead of global memory dicts.
+
+### Phase 6: Standalone Modern Web Frontend (Vite + React + Tailwind CSS)
+*Replacing fragile Streamlit UI with a decoupled, high-performance web client.*
+- **Decoupled Architecture**: Scaffolding a Vite + React + Tailwind CSS application in `v1/frontend/` that communicates with the backend exclusively via FastAPI REST endpoints.
+- **60 FPS Parallax Canvas**: Implementing a native HTML5 `<canvas>` viewport with `requestAnimationFrame`, spring/lerp cursor smoothing, asynchronous batch frame decoding (`createImageBitmap`), and bilinear pitch/yaw cross-fading.
+- **Robust Drag-and-Drop Upload**: Direct client-side preview via `URL.createObjectURL`, decoupling file selection from server job execution to eliminate upload glitches.
+- **Interactive Math Inspector**: Live client-side camera matrix and homography derivations with formatted KaTeX LaTeX equations.
+- **FastAPI Static Serving**: Mounting the compiled frontend build in `v1/src/api/server.py` so the API and UI are served together via a single command.
+
+

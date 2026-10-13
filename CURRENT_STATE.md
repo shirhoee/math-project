@@ -1,3 +1,6 @@
+> [!WARNING]
+> ONLY V1: We are not working on v2 from now. All development is strictly restricted to v1.
+
 # Current State of the Codebase (v1)
 
 ## Architecture & Tech Stack
@@ -44,3 +47,4 @@ E:\Math project\v1
 - **Duplicated Render Paths**: Having both `math_engine.py` and `mpi_renderer.py` introduces cognitive load and testing complexity.
 - **Tight Coupling to UI Framework**: The core 3D generation logic is heavily entangled with Streamlit's `@st.cache_data` decorators and procedural execution flow, making it nearly impossible to expose as a standalone API.
 - **Missing Input Validation & Types**: Heavy reliance on loosely typed NumPy arrays and missing validation for image uploads.
+

@@ -6,57 +6,56 @@ from PIL import Image
 from transformers import pipeline
 
 
+import cv2
+
+
 def box_filter(img: np.ndarray, r: int) -> np.ndarray:
     """
-    Box filter using cumulative sum (integral image) to compute local means in O(1) per pixel.
+    Box filter to compute local means in O(1) per pixel.
+    Uses cv2.boxFilter for maximum CPU performance with fallback to cumsum.
     img: (H, W) float array
     r: radius of the box filter (window is 2r+1 x 2r+1)
     Returns: np.ndarray shape (H, W) dtype float32 of local means.
     """
-    H, W = img.shape
-    # Pad to handle borders correctly without shrinking the window
-    # Actually, we can pad with edge values, or just compute sums over valid pixels.
-    # To compute sums over valid pixels easily:
-    # pad img with zeros
-    S = np.zeros((H + 2 * r + 1, W + 2 * r + 1), dtype=np.float32)
-    counts = np.zeros((H + 2 * r + 1, W + 2 * r + 1), dtype=np.float32)
+    try:
+        ksize = 2 * r + 1
+        return cv2.boxFilter(img.astype(np.float32), ddepth=-1, ksize=(ksize, ksize), borderType=cv2.BORDER_REPLICATE)
+    except Exception:
+        H, W = img.shape
+        S = np.zeros((H + 2 * r + 1, W + 2 * r + 1), dtype=np.float32)
+        counts = np.zeros((H + 2 * r + 1, W + 2 * r + 1), dtype=np.float32)
 
-    img_pad = np.pad(img, r, mode="constant", constant_values=0)
-    ones_pad = np.pad(np.ones_like(img), r, mode="constant", constant_values=0)
+        img_pad = np.pad(img, r, mode="constant", constant_values=0)
+        ones_pad = np.pad(np.ones_like(img), r, mode="constant", constant_values=0)
 
-    # Let's do 1-indexed cumsum
-    S_cum = np.zeros((H + 2 * r + 1, W + 2 * r + 1), dtype=np.float32)
-    S_cum[1:, 1:] = img_pad.cumsum(axis=0).cumsum(axis=1)
+        S_cum = np.zeros((H + 2 * r + 1, W + 2 * r + 1), dtype=np.float32)
+        S_cum[1:, 1:] = img_pad.cumsum(axis=0).cumsum(axis=1)
 
-    C_cum = np.zeros((H + 2 * r + 1, W + 2 * r + 1), dtype=np.float32)
-    C_cum[1:, 1:] = ones_pad.cumsum(axis=0).cumsum(axis=1)
+        C_cum = np.zeros((H + 2 * r + 1, W + 2 * r + 1), dtype=np.float32)
+        C_cum[1:, 1:] = ones_pad.cumsum(axis=0).cumsum(axis=1)
 
-    # y1, x1 are the start indices (inclusive) in the padded array
-    # y2, x2 are the end indices (inclusive) in the padded array
-    # padded array indices for window around (y, x) are y to y+2r, x to x+2r
-    # in 1-indexed cumsum, sum is S[y2+1, x2+1] - S[y1, x2+1] - S[y2+1, x1] + S[y1, x1]
-    y_start = np.arange(H)
-    y_end = y_start + 2 * r + 1
-    x_start = np.arange(W)
-    x_end = x_start + 2 * r + 1
+        y_start = np.arange(H)
+        y_end = y_start + 2 * r + 1
+        x_start = np.arange(W)
+        x_end = x_start + 2 * r + 1
 
-    Y_start, X_start = np.meshgrid(y_start, x_start, indexing="ij")
-    Y_end, X_end = np.meshgrid(y_end, x_end, indexing="ij")
+        Y_start, X_start = np.meshgrid(y_start, x_start, indexing="ij")
+        Y_end, X_end = np.meshgrid(y_end, x_end, indexing="ij")
 
-    sum_img = (
-        S_cum[Y_end, X_end]
-        - S_cum[Y_start, X_end]
-        - S_cum[Y_end, X_start]
-        + S_cum[Y_start, X_start]
-    )
-    count_img = (
-        C_cum[Y_end, X_end]
-        - C_cum[Y_start, X_end]
-        - C_cum[Y_end, X_start]
-        + C_cum[Y_start, X_start]
-    )
+        sum_img = (
+            S_cum[Y_end, X_end]
+            - S_cum[Y_start, X_end]
+            - S_cum[Y_end, X_start]
+            + S_cum[Y_start, X_start]
+        )
+        count_img = (
+            C_cum[Y_end, X_end]
+            - C_cum[Y_start, X_end]
+            - C_cum[Y_end, X_start]
+            + C_cum[Y_start, X_start]
+        )
 
-    return sum_img / count_img
+        return sum_img / count_img
 
 
 def guided_filter(I: np.ndarray, p: np.ndarray, r: int, eps: float = 1e-3) -> np.ndarray:
@@ -174,5 +173,14 @@ class DepthEstimator:
         return disparity
 
 
+_DEPTH_MODEL_CACHE: dict[str, DepthEstimator] = {}
+
+
 def get_depth_model(size: str = "Small") -> DepthEstimator:
-    return DepthEstimator(size=size)
+    """
+    Returns a cached DepthEstimator singleton to avoid reloading PyTorch weights on every render.
+    """
+    if size not in _DEPTH_MODEL_CACHE:
+        _DEPTH_MODEL_CACHE[size] = DepthEstimator(size=size)
+    return _DEPTH_MODEL_CACHE[size]
+

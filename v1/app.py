@@ -481,11 +481,14 @@ if uploaded is not None:
         out_f.write(uploaded.getbuffer())
     if st.session_state.selected_image_path != path:
         on_select_sample(path)
+        st.rerun()
 
-if st.session_state.job_result is None and st.session_state.job_status is None:
+if st.session_state.job_result is None and not is_running:
     start_job(
-        st.session_state.selected_image_path, "Layers (MPI)", "Normal (0.07)", 1.0, 4.0, 16, 0.35
+        st.session_state.selected_image_path, 'Layers (MPI)', 'Normal (0.07)', 1.0, 4.0, 16, 0.35
     )
+    st.rerun()
+
 
 
 
